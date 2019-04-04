@@ -8,16 +8,14 @@ project(kvt)
 include_directories(".")
 
 find_package(pybind11 REQUIRED)
-find_package(protobuf REQUIRED)
-link_directories(${protobuf_LIBRARY_DIRS})
 
 # ltd-core bindings
 pybind11_add_module(
     kvt
     kvt.cpp
-    protos/service.pb.cc
-    protos/competitor.pb.cc
-    protos/exchange.pb.cc
-    protos/order_book.pb.cc
+    lets-be-rational/LetsBeRational.cpp
+    lets-be-rational/rationalcubic.cpp
+    lets-be-rational/normaldistribution.cpp
+    lets-be-rational/erf_cody.cpp
 )
 target_link_libraries(kvt PRIVATE -L/usr/local/lib -lprotobuf)
