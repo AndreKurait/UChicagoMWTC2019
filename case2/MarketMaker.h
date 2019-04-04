@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <thread>
+#include <mutex>
 #include <atomic>
 #include <memory>
 #include <string>
@@ -10,6 +11,8 @@
 extern "C" double black(double F, double K, double sigma, double T, double q);
 
 namespace kvt {
+    struct Spread;
+
     struct Order {
         enum class OrderType {
             Market,
@@ -19,9 +22,14 @@ namespace kvt {
         std::string asset;
         int qty;
         OrderType type;
-        float price;
+        double price;
+        double spread;
+        bool bid;
         // competitor identifier
         std::string order_id;
+
+        // the spread which this order was generated for
+        Spread* spreadStrat;
     };
 
     struct Fill {
@@ -36,12 +44,12 @@ namespace kvt {
 
     struct PriceLevel {
         int size;
-        float price;
+        double price;
     };
 
     struct MarketUpdate {
         Asset asset;
-        float mid_market_price;
+        double mid_market_price;
         std::vector<PriceLevel> bids;
         std::vector<PriceLevel> asks;
     };
@@ -49,6 +57,22 @@ namespace kvt {
     struct Update {
         std::vector<Fill> fills;
         std::vector<MarketUpdate> market_updates;
+    };
+
+    struct Spread {
+        Spread(std::string asset, double spread, int size)
+            : asset(asset)
+            , spread(spread)
+            , size(size)
+            , bid(nullptr)
+            , ask(nullptr)
+        {}
+
+        std::string asset;
+        double spread;
+        int size;
+        Order* bid;
+        Order* ask;
     };
 
     class MarketMaker {
@@ -87,30 +111,126 @@ namespace kvt {
             }
 
             MarketMaker()
-                : val_{0}
+                : allAssets_{"C98PHX", "C99PHX", "C100PHX", "C101PHX", "C102PHX",
+                             "P98PHX", "P99PHX", "P100PHX", "P101PHX", "P102PHX",
+                             "IDX#PHX"}
+                , val_{0}
             {
+                holdingOrder_.reset(new Order);
+
+                for(auto const& asset : allAssets_) {
+                    spreads_.emplace_back(asset, 0.01, 10);
+                    spreads_.emplace_back(asset, 0.03, 10);
+                }
+
                 thread_.reset(new std::thread(&MarketMaker::body, this));
             }
 
             int handle_update(Update const& update) {
-                for(auto& u : update.market_updates) {
-                    for(auto& bid : u.bids) {
-                        std::cout << "price: " << bid.price << std::endl;
+                { // mutex scope
+                    std::lock_guard<std::mutex> lk(lastMidPriceMut_);
+                    for(auto const& mu : update.market_updates) {
+                        // This normalization of the double is to avoid order rejections
+                        // due to minimum tick size
+                        lastMidPrice_[mu.asset.asset_code] =
+                            static_cast<double>(round(mu.mid_market_price * 100)) / 100.0;
                     }
                 }
+
                 int ret = val_.load();
                 val_.store(0);
+                return ret;
+            }
+
+            void place_order(Order order, std::string order_id) {
+                order.order_id = order_id;
+                std::lock_guard<std::mutex> lk(placedOrdersQueueMut_);
+                placedOrdersQueue_.push_back(order);
+            }
+
+            std::vector<Order> get_and_clear_orders() {
+                std::lock_guard<std::mutex> lk(pendingOrdersMut_);
+                std::vector<Order> ret(pendingOrders_);
+                pendingOrders_.clear();
                 return ret;
             }
 
             void body() {
                 while(true) {
                     ++val_;
+                    // make sure spreads are populated
+                    for(auto& spread : spreads_) {
+                        if(spread.bid == nullptr) {
+                            lastMidPriceMut_.lock();
+                            auto last_price = lastMidPrice_[spread.asset];
+                            lastMidPriceMut_.unlock();
+                            if(last_price > 0.01) {
+                                std::lock_guard<std::mutex> lc(pendingOrdersMut_);
+                                // mark this as taken
+                                spread.bid = holdingOrder_.get();
+
+                                Order o;
+                                o.asset = spread.asset;
+                                o.price = last_price;
+                                o.qty   = spread.size;
+                                o.type  = Order::OrderType::Limit;
+                                o.bid   = true;
+                                o.spreadStrat = &spread;
+                                pendingOrders_.push_back(o);
+                            }
+                        }
+
+                    if(spread.ask == nullptr) {
+                            lastMidPriceMut_.lock();
+                            auto last_price = lastMidPrice_[spread.asset];
+                            lastMidPriceMut_.unlock();
+                            // prevent premature orders
+                            if(last_price > 0.01) {
+                                std::lock_guard<std::mutex> lc(pendingOrdersMut_);
+                                // mark this as taken
+                                spread.ask = holdingOrder_.get();
+
+                                Order o;
+                                o.asset = spread.asset;
+                                o.price = last_price;
+                                o.qty   = spread.size;
+                                o.type  = Order::OrderType::Limit;
+                                o.bid   = false;
+                                o.spreadStrat = &spread;
+                                pendingOrders_.push_back(o);
+                            }
+                        }
+                    }
                 }
             }
 
         private:
+            std::vector<std::string> allAssets_;
+
+            // holding variable for when we have sent an order to an exchange
+            // for a spread strategy, but it hasn't been confirmed
+            std::unique_ptr<Order> holdingOrder_;
+
+            // hash table of last recorded market price of an asset
+            std::mutex lastMidPriceMut_;
+            std::unordered_map<std::string, double> lastMidPrice_;
+
+            // orders generated in processing thread which we are waiting to place
+            std::mutex pendingOrdersMut_;
+            std::vector<Order> pendingOrders_;
+
+            // orders that we have placed in the exchange
+            std::mutex placedOrdersQueueMut_;
+            std::vector<Order> placedOrdersQueue_;
+
+            // what spreads are we trading?
+            std::vector<Spread> spreads_;
+
+            // This is just for testing for now, to see how fast the processing thread
+            // actually is
             std::atomic<int> val_;
+
+            // processing thread
             std::unique_ptr<std::thread> thread_;
     };
 }

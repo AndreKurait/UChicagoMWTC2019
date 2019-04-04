@@ -3,52 +3,23 @@
 
 #include "MarketMaker.h"
 
-/*
-    struct Order {
-        enum class OrderType {
-            Market,
-            Limit
-        };
-
-        std::string asset;
-        int qty;
-        OrderType type;
-        float price;
-        // competitor identifier
-        std::string order_id;
-    };
-
-    struct Fill {
-
-    };
-
-    struct Asset {
-        std::string asset_code;
-        // min_tick_size
-        // max_position
-    };
-
-    struct PriceLevel {
-        int size;
-        float price;
-    }
-
-    struct MarketUpdate {
-        Asset asset;
-        float mid_market_price;
-        std::vector<PriceLevel> bids;
-        std::vector<PriceLevel> asks;
-    };
-
-    struct Update {
-        std::vector<Fill> fills;
-        std::vector<MarketUpdate> market_updates;
-    };
-*/
-
 namespace py = pybind11;
 namespace kvt::pybind {
     PYBIND11_MODULE(kvt, m) {
+        py::enum_<kvt::Order::OrderType>(m, "OrderType")
+            .value("Market", kvt::Order::OrderType::Market)
+            .value("Limit", kvt::Order::OrderType::Limit);
+
+        py::class_<kvt::Order>(m, "Order")
+            .def(py::init<>())
+            .def_readwrite("asset", &kvt::Order::asset)
+            .def_readwrite("qty", &kvt::Order::qty)
+            .def_readwrite("type", &kvt::Order::type)
+            .def_readwrite("price", &kvt::Order::price)
+            .def_readwrite("spread", &kvt::Order::spread)
+            .def_readwrite("bid", &kvt::Order::bid)
+            .def_readwrite("order_id", &kvt::Order::order_id);
+
         py::class_<kvt::Asset>(m, "Asset")
             .def(py::init<>())
             .def_readwrite("asset_code", &kvt::Asset::asset_code);
@@ -67,6 +38,7 @@ namespace kvt::pybind {
 
         py::bind_vector<std::vector<kvt::MarketUpdate>>(m, "MarketUpdates");
         py::bind_vector<std::vector<kvt::PriceLevel>>(m, "PriceLevels");
+        py::bind_vector<std::vector<kvt::Order>>(m, "Orders");
 
         py::class_<kvt::Update>(m, "Update")
             .def(py::init<>())
@@ -74,6 +46,8 @@ namespace kvt::pybind {
 
         py::class_<kvt::MarketMaker>(m, "MarketMaker")
             .def(py::init<>())
-            .def("handle_update", &kvt::MarketMaker::handle_update);
+            .def("handle_update", &kvt::MarketMaker::handle_update)
+            .def("place_order", &kvt::MarketMaker::place_order)
+            .def("get_and_clear_orders", &kvt::MarketMaker::get_and_clear_orders);
     }
 }

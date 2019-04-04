@@ -10,9 +10,6 @@ from protos.service_pb2 import PlaceOrderResponse
 from collections import deque
 
 class ExampleMarketMaker(BaseExchangeServerClient):
-    """A simple market making bot - shows the basics of subscribing
-    to market updates and sending orders"""
-
     def __init__(self, *args, **kwargs):
         BaseExchangeServerClient.__init__(self, *args, **kwargs)
 
@@ -37,6 +34,17 @@ class ExampleMarketMaker(BaseExchangeServerClient):
                      competitor_identifier = self._comp_id)
 
     def handle_exchange_update(self, exchange_update_response):
+        orders_to_send = self.kernel.get_and_clear_orders()
+        for order in orders_to_send:
+            order_obj = self._make_order(order.asset, order.qty, order.price,
+                                         order.spread, order.bid)
+            order_id = self.place_order(order_obj)
+            if type(order_id) != PlaceOrderResponse:
+                print(order_id)
+            else:
+                print("ORDER PLACED: ", order_id)
+                self.kernel.place_order(order, order_id.order_id)
+
         update = kvt.Update()
         for market_update in exchange_update_response.market_updates:
             market_up = kvt.MarketUpdate()
@@ -54,31 +62,7 @@ class ExampleMarketMaker(BaseExchangeServerClient):
                 market_up.asks.append(level)
             update.market_updates.append(market_up)
         a = self.kernel.handle_update(update)
-        print(a)
-
-
-        return
-        for market_update in exchange_update_response.market_updates:
-            sym = market_update.asset.asset_code
-            self.mid_market_price[sym] = market_update.mid_market_price
-            if len(self.orders[sym]) == 0:
-                order_bid = self._make_order(sym, 10, self.mid_market_price[sym], 0.02, true)
-                order_ask = self._make_order(sym, 10, self.mid_market_price[sym], 0.02, false)
-                order_bid_code = self.place_order(order_bid)
-                order_ask_code = self.place_order(order_ask)
-                if type(order_bid_code) != placeorderresponse:
-                    print(order_bid_code)
-                else:
-                    self.orders[sym].append([order_bid_code, order_bid])
-
-                if type(order_ask_code) != PlaceOrderResponse:
-                    print(order_ask_code)
-                else:
-                    self.orders[sym].append([order_ask_code, order_ask])
-
-        # make a market around the pegged price
-        # if the price starts moving, cancel orders outside of the range
-        # when we get a fill back, calculate our greeks and fix our hedge
+        print("C++ thread iterations: ", a)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run the exchange client')
