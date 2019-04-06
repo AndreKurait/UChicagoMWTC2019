@@ -37,12 +37,13 @@ class TestStrategy():
             assert alloc.shape == (self.A, ) and alloc.dtype == np.float
             alloc = alloc / np.abs(alloc).sum()
             ret = alloc @ self.log_rets[i]
-            participant_ret.append(ret)
-            
-            sharpe = tester.evaluate_sharpe(np.array(participant_ret))
-            print("Your annualized sharpe ratio is {}".format(sharpe))
+            if(i > 700):
+                participant_ret.append(ret)
+                if(i > 701):
+                    sharpe = tester.evaluate_sharpe(np.array(participant_ret))
+                    print("Your annualized sharpe ratio is {}".format(sharpe))
 
-            print("Your daily profit is {}".format(np.array(ret)))
+                    print("Your daily profit is {}".format(np.array(ret)))
         return np.array(participant_ret)
 
     @staticmethod
