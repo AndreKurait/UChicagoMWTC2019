@@ -41,6 +41,8 @@ class TestStrategy():
             
             sharpe = tester.evaluate_sharpe(np.array(participant_ret))
             print("Your annualized sharpe ratio is {}".format(sharpe))
+
+            print("Your daily profit is {}".format(np.array(ret)))
         return np.array(participant_ret)
 
     @staticmethod

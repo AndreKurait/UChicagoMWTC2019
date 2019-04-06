@@ -50,7 +50,7 @@ class Strategy():
         self.prices.append(price)
         self.past_factors.append(factors)
 
-        if(inx >= 60):
+        if(inx >= 700):
             try:
                 factors = np.array(self.past_factors)
                 #Just take the first 500 features and the 501 self.prices, Just like train data
@@ -62,7 +62,6 @@ class Strategy():
                 returns_df.sub(returns_df.mean(axis=1), axis=0)
 
                 # In[84]:
-
 
                 q = []
                 for k in range(0,len(self.prices[-1])):    
@@ -157,8 +156,9 @@ class Strategy():
                 import operator
                 index, value = max(enumerate(sharpe), key=operator.itemgetter(1))
                 return (np.array(portfolios[index])[:,0])
-            except:
+            except ZeroDivisionError:
                 return np.array([1.0] * price.shape[0])
 
         # assert portfolios[index].shape == factors.shape[0]
         return np.array([1.0] * price.shape[0])
+
