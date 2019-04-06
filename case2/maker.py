@@ -33,7 +33,38 @@ class ExampleMarketMaker(BaseExchangeServerClient):
                      price = base_price-spread/2 if bid else base_price+spread/2,
                      competitor_identifier = self._comp_id)
 
+    def convert_competitor(self, comp):
+        comp_kvt = kvt.Competitor()
+        comp_kvt.id = comp.competitor_id
+        return comp_kvt
+
+    def convert_order(self, order):
+        order_kvt = kvt.Order()
+        order_kvt.asset = order.asset_code
+        order_kvt.qty = order.quantity
+        order_kvt.type = kvt.OrderType.Market if order.order_type == Order.ORDER_MKT else kvt.OrderType.Limit
+        order_kvt.price = order.price
+        order_kvt.comp = self.convert_competitor(order.competitor_identifier)
+        order_kvt.order_id = order.order_id
+        return order_kvt
+
+    def convert_fill(self, fill):
+        fill_kvt = kvt.Fill()
+        fill_kvt.order_id = fill.order.order_id;
+        fill_kvt.comp = self.convert_competitor(fill.trader)
+        fill_kvt.filled = fill.filled_quantity
+        fill_kvt.remaining = fill.remaining_quantity
+        fill_kvt.fill_price = fill.fill_price
+        return fill_kvt
+
     def handle_exchange_update(self, exchange_update_response):
+        print("----------------")
+        print("PNL: ", exchange_update_response.competitor_metadata.pnl)
+        print("FINES: ", exchange_update_response.competitor_metadata.fines)
+        print("COMMISSIONS: ", exchange_update_response.competitor_metadata.commissions)
+        print("----------------")
+
+        # send orders
         orders_to_send = self.kernel.get_and_clear_orders()
         for order in orders_to_send:
             order_obj = self._make_order(order.asset, order.qty, order.price,
@@ -42,9 +73,14 @@ class ExampleMarketMaker(BaseExchangeServerClient):
             if type(order_id) != PlaceOrderResponse:
                 print(order_id)
             else:
-                print("ORDER PLACED: ", order_id)
+                #print("ORDER PLACED: ")
                 self.kernel.place_order(order, order_id.order_id)
 
+        for fill in exchange_update_response.fills:
+            fill_kvt = self.convert_fill(fill)
+            self.kernel.handle_fill(fill_kvt)
+
+        # hand-over market data to processing kernel
         update = kvt.Update()
         for market_update in exchange_update_response.market_updates:
             market_up = kvt.MarketUpdate()
