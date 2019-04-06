@@ -38,6 +38,9 @@ class TestStrategy():
             alloc = alloc / np.abs(alloc).sum()
             ret = alloc @ self.log_rets[i]
             participant_ret.append(ret)
+            
+            sharpe = tester.evaluate_sharpe(np.array(participant_ret))
+            print("Your annualized sharpe ratio is {}".format(sharpe))
         return np.array(participant_ret)
 
     @staticmethod
