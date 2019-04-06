@@ -66,7 +66,7 @@ class ExampleMarketMaker(BaseExchangeServerClient):
         # send orders
         orders_to_send = self.kernel.get_and_clear_orders()
         for order in orders_to_send:
-            order_obj = self._make_order(order.asset, order.qty, order.price,
+            order_obj = self._make_order(kvt.asset_to_string(order.asset), order.size, order.price,
                                          order.spread, order.bid)
             order_id = self.place_order(order_obj)
             if type(order_id) != PlaceOrderResponse:
@@ -83,7 +83,7 @@ class ExampleMarketMaker(BaseExchangeServerClient):
         update = kvt.Update()
         for market_update in exchange_update_response.market_updates:
             market_up = kvt.MarketUpdate()
-            market_up.asset.asset_code = market_update.asset.asset_code
+            market_up.asset = kvt.asset_parse(market_update.asset.asset_code)
             market_up.mid_market_price = market_update.mid_market_price
             for bid in market_update.bids:
                 level = kvt.PriceLevel()
@@ -97,7 +97,6 @@ class ExampleMarketMaker(BaseExchangeServerClient):
                 market_up.asks.append(level)
             update.market_updates.append(market_up)
         a = self.kernel.handle_update(update)
-        print("C++ thread iterations: ", a)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run the exchange client')

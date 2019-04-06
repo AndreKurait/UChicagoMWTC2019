@@ -6,6 +6,11 @@
 namespace py = pybind11;
 namespace kvt::pybind {
     PYBIND11_MODULE(kvt, m) {
+        m.def("asset_to_string", &kvt::Asset::to_str);
+        m.def("asset_parse", &kvt::Asset::parse);
+
+        py::enum_<kvt::Asset::Type>(m, "Asset");
+
         py::class_<kvt::Competitor>(m, "Competitor")
             .def(py::init<>())
             .def_readwrite("id", &kvt::Competitor::id);
@@ -17,7 +22,7 @@ namespace kvt::pybind {
         py::class_<kvt::Order>(m, "Order")
             .def(py::init<>())
             .def_readwrite("asset", &kvt::Order::asset)
-            .def_readwrite("qty", &kvt::Order::qty)
+            .def_readwrite("size", &kvt::Order::size)
             .def_readwrite("type", &kvt::Order::type)
             .def_readwrite("price", &kvt::Order::price)
             .def_readwrite("comp", &kvt::Order::comp)
@@ -31,10 +36,6 @@ namespace kvt::pybind {
             .def_readwrite("comp", &kvt::Fill::comp)
             .def_readwrite("filled", &kvt::Fill::filled)
             .def_readwrite("fill_price", &kvt::Fill::fill_price);
-
-        py::class_<kvt::Asset>(m, "Asset")
-            .def(py::init<>())
-            .def_readwrite("asset_code", &kvt::Asset::asset_code);
 
         py::class_<kvt::PriceLevel>(m, "PriceLevel")
             .def(py::init<>())
