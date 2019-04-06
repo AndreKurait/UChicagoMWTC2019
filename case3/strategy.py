@@ -59,7 +59,7 @@ class Strategy():
                 df = pd.DataFrame(self.prices)
                 returns_df = df.pct_change()
                 returns_df.drop(0, axis = 0, inplace = True)
-                returns_df.sub(returns_df.mean(axis=1), axis=0)
+                # returns_df.sub(returns_df.mean(axis=1), axis=0)
 
                 # In[84]:
 
@@ -93,7 +93,7 @@ class Strategy():
 
                     s1 = (self.prices[-1][k]  - self.prices[-2][k]) / self.prices[-2][k] 
                     predicted_f1 = coef.T * s1
-
+                    # print(predicted_f1[0])
 
                     ######################################################################
 
@@ -114,15 +114,8 @@ class Strategy():
                     x = reg2.predict(predicted_f1.reshape(1,-1))
                     q.append(x)
 
-
-                # In[29]:
-
-
                 LedWolf = LedoitWolf().fit(self.prices)
                 cov = LedWolf.covariance_
-
-
-                # In[39]:
 
 
                 cvxopt.solvers.options['show_progress'] = False
@@ -146,17 +139,15 @@ class Strategy():
                 returns = [ dot(pbar,x) for x in portfolios ]
                 risks = [ sqrt(dot(x, S*x)) for x in portfolios ]
 
-
-                # In[42]:
-
-
                 sharpe = []
                 for x, y in zip(returns, risks):
                     sharpe.append(x / np.square(y))
                 import operator
                 index, value = max(enumerate(sharpe), key=operator.itemgetter(1))
+
                 return (np.array(portfolios[index])[:,0])
-            except ZeroDivisionError:
+            except:
+                print("Exception")
                 return np.array([1.0] * price.shape[0])
 
         # assert portfolios[index].shape == factors.shape[0]
