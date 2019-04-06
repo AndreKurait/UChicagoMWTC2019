@@ -6,6 +6,10 @@
 namespace py = pybind11;
 namespace kvt::pybind {
     PYBIND11_MODULE(kvt, m) {
+        py::class_<kvt::Competitor>(m, "Competitor")
+            .def(py::init<>())
+            .def_readwrite("id", &kvt::Competitor::id);
+
         py::enum_<kvt::Order::OrderType>(m, "OrderType")
             .value("Market", kvt::Order::OrderType::Market)
             .value("Limit", kvt::Order::OrderType::Limit);
@@ -16,9 +20,18 @@ namespace kvt::pybind {
             .def_readwrite("qty", &kvt::Order::qty)
             .def_readwrite("type", &kvt::Order::type)
             .def_readwrite("price", &kvt::Order::price)
+            .def_readwrite("comp", &kvt::Order::comp)
             .def_readwrite("spread", &kvt::Order::spread)
             .def_readwrite("bid", &kvt::Order::bid)
             .def_readwrite("order_id", &kvt::Order::order_id);
+
+        py::class_<kvt::Fill>(m, "Fill")
+            .def(py::init<>())
+            .def_readwrite("order_id", &kvt::Fill::order_id)
+            .def_readwrite("comp", &kvt::Fill::comp)
+            .def_readwrite("filled", &kvt::Fill::filled)
+            .def_readwrite("remaining", &kvt::Fill::remaining)
+            .def_readwrite("fill_price", &kvt::Fill::fill_price);
 
         py::class_<kvt::Asset>(m, "Asset")
             .def(py::init<>())
@@ -47,6 +60,7 @@ namespace kvt::pybind {
         py::class_<kvt::MarketMaker>(m, "MarketMaker")
             .def(py::init<>())
             .def("handle_update", &kvt::MarketMaker::handle_update)
+            .def("handle_fill", &kvt::MarketMaker::handle_fill)
             .def("place_order", &kvt::MarketMaker::place_order)
             .def("get_and_clear_orders", &kvt::MarketMaker::get_and_clear_orders);
     }

@@ -1,0 +1,17 @@
+We have three parts to this problem
+1) Forcasting Prices based on current factors as according to the BARRA model.
+2) Creating a stable covariance matrix - This uses a paper"Honey, I Shrunk the Sample Covariance Matrix" by Ledoit and Wolf.
+3) Optimization of the profit vector/portfolio matrix
+
+TO DO:
+On 1)
+1) Currently we are using linear models to get our Lij constants for our model. We may move to a time series model if we want to focus on
+more recent changes.
+2) We need to finish the updating of the Lij based on updated information. Should be pretty easy, undecided what type of model to use.
+3) Expected Profit is not been implimented yet, but should not be difficult.
+On 2)
+1) This should work pretty well. We normalize, then impliment a shrinkage model described in the paper. 
+On 3)
+We need to impliment this entire model system. Should not be too difficult. We need quadratic optimization, because most likely 1D 
+optimization will fall into saddle points. We may make the problem easier by fixing profit to some reasonable value and just taking
+portfolios around that. We are also looking at bundling very high cov stocks to simplfy the problem.
