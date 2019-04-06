@@ -53,7 +53,6 @@ class ExampleMarketMaker(BaseExchangeServerClient):
         fill_kvt.order_id = fill.order.order_id;
         fill_kvt.comp = self.convert_competitor(fill.trader)
         fill_kvt.filled = fill.filled_quantity
-        fill_kvt.remaining = fill.remaining_quantity
         fill_kvt.fill_price = fill.fill_price
         return fill_kvt
 

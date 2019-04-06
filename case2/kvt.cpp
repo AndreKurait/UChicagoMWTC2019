@@ -30,7 +30,6 @@ namespace kvt::pybind {
             .def_readwrite("order_id", &kvt::Fill::order_id)
             .def_readwrite("comp", &kvt::Fill::comp)
             .def_readwrite("filled", &kvt::Fill::filled)
-            .def_readwrite("remaining", &kvt::Fill::remaining)
             .def_readwrite("fill_price", &kvt::Fill::fill_price);
 
         py::class_<kvt::Asset>(m, "Asset")
