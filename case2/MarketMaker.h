@@ -20,12 +20,17 @@ namespace kvt {
     };
 
     struct Order {
+        enum class AssetType {
+            Option,
+            Underlying
+        };
         enum class OrderType {
             Market,
             Limit
         };
 
         std::string asset;
+        AssetType asset_type;
         int qty;
         OrderType type;
         double price;
@@ -160,16 +165,18 @@ namespace kvt {
 
             void place_order(Order const& order, std::string order_id) {
                 auto order_itr = std::end(orders_);
-                if(order.bid) {
-                    order_itr = order.spreadStrat->bid;
-                } else {
-                    order_itr = order.spreadStrat->ask;
+                if(order.asset_type == Order::AssetType::Option) {
+                    if(order.bid) {
+                        order_itr = order.spreadStrat->bid;
+                    } else {
+                        order_itr = order.spreadStrat->ask;
+                    }
+                    order_itr->order_id = order_id;
+                    std::lock_guard<std::mutex> lk(ordersMapMut_);
+                    ordersMap_[order_id] = order_itr;
+                    std::lock_guard<std::mutex> lc(placedOrdersQueueMut_);
+                    placedOrdersQueue_.push_back(&*order_itr);
                 }
-                order_itr->order_id = order_id;
-                std::lock_guard<std::mutex> lk(ordersMapMut_);
-                ordersMap_[order_id] = order_itr;
-                std::lock_guard<std::mutex> lc(placedOrdersQueueMut_);
-                placedOrdersQueue_.push_back(&*order_itr);
             }
 
             std::vector<Order> get_and_clear_orders() {
@@ -195,6 +202,7 @@ namespace kvt {
                         std::lock_guard<std::mutex> lc(pendingOrdersMut_);
                         auto& o = orders_.emplace_back();
                         o.asset = spread.asset;
+                        o.asset_type = Order::AssetType::Option;
                         o.price = last_price;
                         o.spread = spread.spread;
                         o.qty   = spread.size;
@@ -287,12 +295,13 @@ namespace kvt {
                     {
                         Order* hedge = new Order;
                         hedge->asset = "IDX#PHX";
+                        hedge->asset_type = Order::AssetType::Underlying;
                         hedge->qty   = abs(static_cast<int>(delta_portfolio));
                         hedge->type  = Order::OrderType::Market;
                         hedge->price = 1;
                         hedge->bid   = delta_portfolio > 0;
                         std::lock_guard<std::mutex> lk(pendingOrdersMut_);
-                        pendingOrders_.push_back(hedge);
+                        //pendingOrders_.push_back(hedge);
                     }
 
                 }
