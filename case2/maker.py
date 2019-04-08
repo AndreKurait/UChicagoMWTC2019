@@ -17,7 +17,11 @@ class ExampleMarketMaker(BaseExchangeServerClient):
                         "P98PHX", "P99PHX", "P100PHX", "P101PHX", "P102PHX",
                         "IDX#PHX"];
 
-        self.kernel = kvt.MarketMaker()
+        self.kernel = kvt.MarketMaker(3,   # straddle size
+                                      10,  # max position size
+                                      10,   # liquidity depth
+                                      0.05, # reprice threshold
+                                      1.0) # delta max
 
         self.mid_market_price = {}
         self.orders    = {}
@@ -27,10 +31,21 @@ class ExampleMarketMaker(BaseExchangeServerClient):
             self.orders[sym] = deque()
             self.portfolio[sym] = deque()
 
-    def _make_order(self, asset_code, quantity, base_price, spread, bid=True):
+    def _fix_price(self, p, bid):
+        price = int(p * 100) / 100.0
+        if not bid:
+            price += 0.01
+        return price
+
+    def _make_lmt_order(self, asset_code, quantity, base_price, spread, bid=True):
         return Order(asset_code = asset_code, quantity=quantity if bid else -1*quantity,
                      order_type = Order.ORDER_LMT,
-                     price = base_price-spread/2 if bid else base_price+spread/2,
+                     price = self._fix_price(base_price-spread/2 if bid else base_price+spread/2, bid),
+                     competitor_identifier = self._comp_id)
+
+    def _make_mkt_order(self, asset_code, quantity, bid=True):
+        return Order(asset_code = asset_code, quantity=quantity if bid else -1*quantity,
+                     order_type = Order.ORDER_MKT,
                      competitor_identifier = self._comp_id)
 
     def convert_competitor(self, comp):
@@ -40,8 +55,9 @@ class ExampleMarketMaker(BaseExchangeServerClient):
 
     def convert_order(self, order):
         order_kvt = kvt.Order()
-        order_kvt.asset = order.asset_code
-        order_kvt.qty = order.quantity
+        order_kvt.asset = kvt.asset_parse(order.asset_code)
+        order_kvt.size = abs(order.quantity)
+        order_kvt.bid = True if order.quantity > 0 else False
         order_kvt.type = kvt.OrderType.Market if order.order_type == Order.ORDER_MKT else kvt.OrderType.Limit
         order_kvt.price = order.price
         order_kvt.comp = self.convert_competitor(order.competitor_identifier)
@@ -50,7 +66,7 @@ class ExampleMarketMaker(BaseExchangeServerClient):
 
     def convert_fill(self, fill):
         fill_kvt = kvt.Fill()
-        fill_kvt.order_id = fill.order.order_id;
+        fill_kvt.order = self.convert_order(fill.order);
         fill_kvt.comp = self.convert_competitor(fill.trader)
         fill_kvt.filled = fill.filled_quantity
         fill_kvt.fill_price = fill.fill_price
@@ -66,14 +82,36 @@ class ExampleMarketMaker(BaseExchangeServerClient):
         # send orders
         orders_to_send = self.kernel.get_and_clear_orders()
         for order in orders_to_send:
-            order_obj = self._make_order(kvt.asset_to_string(order.asset), order.size, order.price,
+            order_obj = {}
+            if order.type == kvt.OrderType.Limit:
+                order_obj = self._make_lmt_order(kvt.asset_to_string(order.asset), order.size, order.price,
                                          order.spread, order.bid)
+            else:
+                order_obj = self._make_mkt_order(kvt.asset_to_string(order.asset), order.size, order.bid)
             order_id = self.place_order(order_obj)
             if type(order_id) != PlaceOrderResponse:
                 print(order_id)
+                print(order_obj)
+                quit()
+                self.kernel.order_failed(order)
             else:
-                #print("ORDER PLACED: ")
                 self.kernel.place_order(order, order_id.order_id)
+
+        # modify orders
+        modifies_to_send = self.kernel.get_and_clear_modifies()
+        for modify in modifies_to_send:
+            modify_obj = self._make_lmt_order(kvt.asset_to_string(modify.asset), modify.size, modify.price,
+                                              modify.spread, modify.bid)
+            order_id = self.place_order(modify_obj)
+            if type(order_id) != PlaceOrderResponse:
+                print(order_id)
+                print(order_obj)
+                quit()
+                self.kernel.order_failed(modify)
+            else:
+                self.kernel.modify_order(modify, order_id.order_id)
+
+
 
         for fill in exchange_update_response.fills:
             fill_kvt = self.convert_fill(fill)
@@ -82,6 +120,8 @@ class ExampleMarketMaker(BaseExchangeServerClient):
         # hand-over market data to processing kernel
         update = kvt.Update()
         for market_update in exchange_update_response.market_updates:
+            if not kvt.acceptable(market_update.asset.asset_code):
+                continue
             market_up = kvt.MarketUpdate()
             market_up.asset = kvt.asset_parse(market_update.asset.asset_code)
             market_up.mid_market_price = market_update.mid_market_price

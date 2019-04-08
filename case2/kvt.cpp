@@ -8,6 +8,7 @@ namespace kvt::pybind {
     PYBIND11_MODULE(kvt, m) {
         m.def("asset_to_string", &kvt::Asset::to_str);
         m.def("asset_parse", &kvt::Asset::parse);
+        m.def("acceptable", &kvt::Asset::acceptable);
 
         py::enum_<kvt::Asset::Type>(m, "Asset");
 
@@ -32,7 +33,7 @@ namespace kvt::pybind {
 
         py::class_<kvt::Fill>(m, "Fill")
             .def(py::init<>())
-            .def_readwrite("order_id", &kvt::Fill::order_id)
+            .def_readwrite("order", &kvt::Fill::order)
             .def_readwrite("comp", &kvt::Fill::comp)
             .def_readwrite("filled", &kvt::Fill::filled)
             .def_readwrite("fill_price", &kvt::Fill::fill_price);
@@ -58,10 +59,13 @@ namespace kvt::pybind {
             .def_readwrite("market_updates", &kvt::Update::market_updates);
 
         py::class_<kvt::MarketMaker>(m, "MarketMaker")
-            .def(py::init<>())
+            .def(py::init<int, int, int, double, double>())
             .def("handle_update", &kvt::MarketMaker::handle_update)
             .def("handle_fill", &kvt::MarketMaker::handle_fill)
             .def("place_order", &kvt::MarketMaker::place_order)
-            .def("get_and_clear_orders", &kvt::MarketMaker::get_and_clear_orders);
+            .def("modify_order", &kvt::MarketMaker::modify_order)
+            .def("order_failed", &kvt::MarketMaker::order_failed)
+            .def("get_and_clear_orders", &kvt::MarketMaker::get_and_clear_orders)
+            .def("get_and_clear_modifies", &kvt::MarketMaker::get_and_clear_modifies);
     }
 }
