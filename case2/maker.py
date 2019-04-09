@@ -17,10 +17,10 @@ class ExampleMarketMaker(BaseExchangeServerClient):
                         "P98PHX", "P99PHX", "P100PHX", "P101PHX", "P102PHX",
                         "IDX#PHX"];
 
-        self.kernel = kvt.MarketMaker(3,   # straddle size
+        self.kernel = kvt.MarketMaker(5,   # straddle size
                                       10,  # max position size
                                       10,   # liquidity depth
-                                      0.05, # reprice threshold
+                                      0.01, # reprice threshold
                                       1.0) # delta max
 
         self.mid_market_price = {}
@@ -29,7 +29,7 @@ class ExampleMarketMaker(BaseExchangeServerClient):
         for sym in self.symbols:
             self.mid_market_price[sym] = 0
             self.orders[sym] = deque()
-            self.portfolio[sym] = deque()
+            self.portfolio[sym] = 0
 
     def _fix_price(self, p, bid):
         price = int(p * 100) / 100.0
@@ -79,40 +79,6 @@ class ExampleMarketMaker(BaseExchangeServerClient):
         print("COMMISSIONS: ", exchange_update_response.competitor_metadata.commissions)
         print("----------------")
 
-        # send orders
-        orders_to_send = self.kernel.get_and_clear_orders()
-        for order in orders_to_send:
-            order_obj = {}
-            if order.type == kvt.OrderType.Limit:
-                order_obj = self._make_lmt_order(kvt.asset_to_string(order.asset), order.size, order.price,
-                                         order.spread, order.bid)
-            else:
-                order_obj = self._make_mkt_order(kvt.asset_to_string(order.asset), order.size, order.bid)
-            order_id = self.place_order(order_obj)
-            if type(order_id) != PlaceOrderResponse:
-                print(order_id)
-                print(order_obj)
-                quit()
-                self.kernel.order_failed(order)
-            else:
-                self.kernel.place_order(order, order_id.order_id)
-
-        # modify orders
-        modifies_to_send = self.kernel.get_and_clear_modifies()
-        for modify in modifies_to_send:
-            modify_obj = self._make_lmt_order(kvt.asset_to_string(modify.asset), modify.size, modify.price,
-                                              modify.spread, modify.bid)
-            order_id = self.place_order(modify_obj)
-            if type(order_id) != PlaceOrderResponse:
-                print(order_id)
-                print(order_obj)
-                quit()
-                self.kernel.order_failed(modify)
-            else:
-                self.kernel.modify_order(modify, order_id.order_id)
-
-
-
         for fill in exchange_update_response.fills:
             fill_kvt = self.convert_fill(fill)
             self.kernel.handle_fill(fill_kvt)
@@ -137,6 +103,39 @@ class ExampleMarketMaker(BaseExchangeServerClient):
                 market_up.asks.append(level)
             update.market_updates.append(market_up)
         a = self.kernel.handle_update(update)
+
+        # send orders
+        orders_to_send = self.kernel.get_and_clear_orders()
+        for order in orders_to_send:
+            order_obj = {}
+            if order.type == kvt.OrderType.Limit:
+                order_obj = self._make_lmt_order(kvt.asset_to_string(order.asset), order.size, order.price,
+                                         order.spread, order.bid)
+            else:
+                order_obj = self._make_mkt_order(kvt.asset_to_string(order.asset), order.size, order.bid)
+            order_id = self.place_order(order_obj)
+            if type(order_id) != PlaceOrderResponse:
+                print(order_id)
+                print(order_obj)
+                quit()
+                self.kernel.order_failed(order)
+            else:
+                self.kernel.place_order(order, order_id.order_id)
+
+        # modify orders
+        modifies_to_send = self.kernel.get_and_clear_modifies()
+        for modify in modifies_to_send:
+            modify_obj = self._make_lmt_order(kvt.asset_to_string(modify.asset), modify.size, modify.price,
+                                              modify.spread, modify.bid)
+            order_id = self.modify_order(modify.order_id, modify_obj)
+            if type(order_id) != PlaceOrderResponse:
+                print(order_id)
+                print(order_obj)
+                quit()
+                self.kernel.order_failed(modify)
+            else:
+                self.kernel.modify_order(modify, order_id.order_id)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run the exchange client')

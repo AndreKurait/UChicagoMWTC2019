@@ -52,7 +52,7 @@ namespace kvt::pybind {
 
         py::bind_vector<std::vector<kvt::MarketUpdate>>(m, "MarketUpdates");
         py::bind_vector<std::vector<kvt::PriceLevel>>(m, "PriceLevels");
-        py::bind_vector<std::vector<kvt::Order>>(m, "Orders");
+        py::bind_vector<std::vector<kvt::Order*>>(m, "Orders");
 
         py::class_<kvt::Update>(m, "Update")
             .def(py::init<>())
@@ -60,12 +60,13 @@ namespace kvt::pybind {
 
         py::class_<kvt::MarketMaker>(m, "MarketMaker")
             .def(py::init<int, int, int, double, double>())
-            .def("handle_update", &kvt::MarketMaker::handle_update)
-            .def("handle_fill", &kvt::MarketMaker::handle_fill)
-            .def("place_order", &kvt::MarketMaker::place_order)
-            .def("modify_order", &kvt::MarketMaker::modify_order)
-            .def("order_failed", &kvt::MarketMaker::order_failed)
-            .def("get_and_clear_orders", &kvt::MarketMaker::get_and_clear_orders)
-            .def("get_and_clear_modifies", &kvt::MarketMaker::get_and_clear_modifies);
+            .def("handle_update", &kvt::MarketMaker::handle_update, py::keep_alive<1, 2>())
+            .def("handle_fill", &kvt::MarketMaker::handle_fill, py::keep_alive<1, 2>())
+            .def("place_order", &kvt::MarketMaker::place_order, py::keep_alive<1, 2>())
+            .def("modify_order", &kvt::MarketMaker::modify_order, py::keep_alive<1, 2>())
+            .def("order_failed", &kvt::MarketMaker::order_failed, py::keep_alive<1, 2>())
+            .def("process_orders", &kvt::MarketMaker::process_orders)
+            .def("get_and_clear_orders", &kvt::MarketMaker::get_and_clear_orders, pybind11::return_value_policy::reference)
+            .def("get_and_clear_modifies", &kvt::MarketMaker::get_and_clear_modifies, pybind11::return_value_policy::reference);
     }
 }
