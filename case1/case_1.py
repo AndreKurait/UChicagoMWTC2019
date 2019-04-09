@@ -12,10 +12,10 @@ import math
 class Case1(BaseExchangeServerClient):
     """A simple market making bot - shows the basics of subscribing
     to market updates and sending orders"""
-
+    
     def __init__(self, *args, **kwargs):
         BaseExchangeServerClient.__init__(self, *args, **kwargs)
-        self._orderids = set([])
+        self.open_orderids = set([])
         self._count = 0
         self.k_array = []
         self.m_array = []
@@ -23,6 +23,17 @@ class Case1(BaseExchangeServerClient):
         self.q_array = []
         self.u_array = []
         self.v_array = []
+
+        self._symbol_dict = {'K': 0,
+                             'M': 1,
+                             'N': 2,
+                             'Q': 3,
+                             'U': 4,
+                             'V': 5}
+        self.order_id_dict = {}
+        for x in ['K', 'M', 'N', 'Q', 'U', 'V']:
+            self.order_id_dict[x + '_short'] = 0
+            self.order_id_dict[x + '_long'] = 0
 
         self._weights = []
         for x in range(0,50):
@@ -34,6 +45,42 @@ class Case1(BaseExchangeServerClient):
                      order_type = Order.ORDER_LMT,
                      price = base_price,
                      competitor_identifier = self._comp_id)
+
+    def order_update_handle(self, order):
+        if type(order) != PlaceOrderResponse:
+            pass
+        else:
+            return order.order_id
+    
+    def order_creation(self, mean_list_a, mean_list_b, symbol, price_array):
+        val = self._symbol_dict[symbol]
+        s_short = symbol + '_short'
+        s_long = symbol + '_long'
+        if mean_list_a[val] + self._wiggle < price_array[-1][0]:
+            k = self._make_order(symbol, -10, mean_list_a[val] + self._wiggle / 2, .001)
+            if self.order_id_dict[s_short] == 0:
+                order = self.place_order(k)
+                self.order_id_dict[s_short] = self.order_update_handle(order)
+            else:
+                order = self.modify_order(self.order_id_dict[s_short], k)
+                self.order_id_dict[s_short] = self.order_update_handle(order)
+        else:
+            if self.order_id_dict[s_short] != 0:
+                self.cancel_order(self.order_id_dict[s_short])
+                self.order_id_dict[s_short] = 0
+        
+        if mean_list_b[val] - self._wiggle > price_array[-1][1]:
+            k = self._make_order(symbol, 10, mean_list_b[val] - self._wiggle / 2, .001)
+            if self.order_id_dict[s_long] == 0:
+                order = self.place_order(k)
+                self.order_id_dict[s_long] = self.order_update_handle(order)
+            else:
+                order = self.modify_order(self.order_id_dict[s_long], k)
+                self.order_id_dict[s_long] = self.order_update_handle(order)
+        else:
+            if self.order_id_dict[s_long] != 0:
+                self.cancel_order(self.order_id_dict[s_long])
+                self.order_id_dict[s_long] = 0
 
     def handle_exchange_update(self, exchange_update_response):
         #Data Handle
@@ -74,7 +121,7 @@ class Case1(BaseExchangeServerClient):
         
         print(self._count)
         if self._count > 51:
-            wiggle = .001
+            self._wiggle = .001
         
             #This is ensure that we have a decent sample size
             K_mean_b = np.average(np.stack(self.k_array)[-51:-1][:,0], weights = np.array(self._weights), axis = 0)
@@ -90,69 +137,24 @@ class Case1(BaseExchangeServerClient):
             Q_mean_a = np.average(np.stack(self.q_array)[-51:-1][:,1], weights = np.array(self._weights), axis = 0)
             U_mean_a = np.average(np.stack(self.u_array)[-51:-1][:,1], weights = np.array(self._weights), axis = 0)
             V_mean_a = np.average(np.stack(self.v_array)[-51:-1][:,1], weights = np.array(self._weights), axis = 0)
-            
-            mean_z_a = []
-            mean_z_b = []
 
             mean_k_a = np.polyfit([1,2,3,4,5,6], [K_mean_a, M_mean_a, N_mean_a, Q_mean_a, U_mean_a, V_mean_a] , deg = 5)
             mean_k_b = np.polyfit([1,2,3,4,5,6], [K_mean_b, M_mean_b, N_mean_b, Q_mean_b, U_mean_b, V_mean_b] , deg = 5)
             
             #_make_order(self, asset_code, quantity, base_price, spread, bid=True):
-            for x in range(1, 7):
-                mean_z_a.append(mean_k_a[0] * x**5 + mean_k_a[1] * x**4 + mean_k_a[2] * x**3 + mean_k_a[3] * x**2 + mean_k_a[4] * x + mean_k_a[5])
-            for x in range(1, 7):
-                mean_z_b.append(mean_k_b[0] * x**5 + mean_k_b[1] * x**4 + mean_k_b[2] * x**3 + mean_k_b[3] * x**2 + mean_k_b[4] * x + mean_k_b[5])
-
-            if mean_z_a[0] + wiggle < self.k_array[-1][0]:
-                k = self._make_order('K', -10, self.k_array[-1][0] + wiggle / 2, .001)
-                self.place_order(k)
-
-            elif mean_z_b[0] - wiggle > self.k_array[-1][1]:
-                k = self._make_order('K', 10, self.k_array[-1][1] - wiggle / 2, .001)
-                self.place_order(k)
-           
-            if mean_z_a[1] + wiggle < self.m_array[-1][0]:
-                m = self._make_order('M', -10, self.m_array[-1][0] + wiggle / 2, .001)
-                self.place_order(m)
-            elif mean_z_b[1] - wiggle > self.m_array[-1][1]:
-                m = self._make_order('M', 10, self.m_array[-1][1] - wiggle / 2, .001)
-                self.place_order(m)
-            
-            if mean_z_a[2] + wiggle < self.n_array[-1][0]:
-                n = self._make_order('N', -10, self.n_array[-1][0] + wiggle / 2, .001)
-                self.place_order(n)
-            elif mean_z_b[2] - wiggle > self.n_array[-1][1]:
-                n = self._make_order('N', 10, self.n_array[-1][1] - wiggle / 2, .001)
-                self.place_order(n)
-            
-            if mean_z_a[3] + wiggle < self.q_array[-1][0]:
-                q = self._make_order('Q', -10, self.q_array[-1][0] + wiggle / 2, .001)
-                self.place_order(q)
-            elif mean_z_b[3] - wiggle > self.q_array[-1][1]:
-                q = self._make_order('Q', 10, self.q_array[-1][1] - wiggle / 2, .001)
-                self.place_order(q)
-            
-            if mean_z_a[4] + wiggle < self.u_array[-1][0]:
-                u = self._make_order('U', -10, self.u_array[-1][0] + wiggle / 2, .001)
-                self.place_order(u)
-            elif mean_z_b[4] - wiggle > self.u_array[-1][1]:
-                u = self._make_order('U', 10, self.u_array[-1][1] - wiggle / 2, .001)
-                self.place_order(u)
-            
-            if mean_z_a[5] + wiggle < self.v_array[-1][0]:
-                v = self._make_order('V', -10, self.v_array[-1][0] + wiggle / 2, .001)
-                self.place_order(v)
-            elif mean_z_b[5] - wiggle > self.v_array[-1][1]:
-                v = self._make_order('V', 10, self.v_array[-1][1] - wiggle / 2, .001)
-                self.place_order(v)
+            self.order_creation(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'K', price_array = self.k_array )
+            self.order_creation(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'M', price_array = self.m_array )
+            self.order_creation(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'N', price_array = self.n_array )
+            self.order_creation(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'Q', price_array = self.q_array )
+            self.order_creation(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'U', price_array = self.u_array )
+            self.order_creation(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'V', price_array = self.v_array )
+        
+        self._count+=1
+        print(self.order_id_dict)
+    
         
 
-        self._count+=1
-
-
-
-
-
+    
 
 
             #Good code that I may need later
@@ -220,5 +222,5 @@ if __name__ == "__main__":
                                         args.client_id, args.client_private_key,
                                         args.websocket_port)
 
-    client = ExampleMarketMaker(host, port, client_id, client_pk, websocket_port)
+    client = Case1(host, port, client_id, client_pk, websocket_port)
     client.start_updates()
