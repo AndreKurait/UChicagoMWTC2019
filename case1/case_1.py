@@ -12,7 +12,6 @@ import math
 class Case1(BaseExchangeServerClient):
     """A simple market making bot - shows the basics of subscribing
     to market updates and sending orders"""
-    
     def __init__(self, *args, **kwargs):
         BaseExchangeServerClient.__init__(self, *args, **kwargs)
         self.open_orderids = set([])
@@ -23,23 +22,33 @@ class Case1(BaseExchangeServerClient):
         self.q_array = []
         self.u_array = []
         self.v_array = []
-
+        self._wiggle = .001
+        #This is used to relate the symbol to the index of the arrays
         self._symbol_dict = {'K': 0,
                              'M': 1,
                              'N': 2,
                              'Q': 3,
                              'U': 4,
                              'V': 5}
+        
+        #This is used to keep track of open orders, what symbol they link to, and what their order id is
         self.order_id_dict = {}
         for x in ['K', 'M', 'N', 'Q', 'U', 'V']:
             self.order_id_dict[x + '_short'] = 0
             self.order_id_dict[x + '_long'] = 0
 
+        #This is used to calculated the exponential weights needed for the MA time series
         self._weights = []
         for x in range(0,50):
             self._weights.append(math.e**-x)
+        
+        #This is used to know what amount of shares we have
+        self.owned_shares = {}
+        for x in ['K', 'M', 'N', 'Q', 'U', 'V']:
+            self.owned_shares[x] = 0
 
-    def _make_order(self, asset_code, quantity, base_price, spread, bid=True):
+
+    def _make_order(self, asset_code, quantity, base_price, bid=True):
         base_price = float(format(base_price, '.2f'))
         return Order(asset_code = asset_code, quantity=quantity,
                      order_type = Order.ORDER_LMT,
@@ -56,37 +65,53 @@ class Case1(BaseExchangeServerClient):
         val = self._symbol_dict[symbol]
         s_short = symbol + '_short'
         s_long = symbol + '_long'
-        if mean_list_a[val] + self._wiggle < price_array[-1][0]:
-            k = self._make_order(symbol, -10, mean_list_a[val] + self._wiggle / 2, .001)
-            if self.order_id_dict[s_short] == 0:
-                order = self.place_order(k)
-                self.order_id_dict[s_short] = self.order_update_handle(order)
-            else:
-                order = self.modify_order(self.order_id_dict[s_short], k)
-                self.order_id_dict[s_short] = self.order_update_handle(order)
+
+
+        #This creates a limit order for a short right above the calculated theo + wiggle
+        #We want to place a new order if the old one was filled or modify it if it's not a good price anymore
+        k = self._make_order(symbol, -1, mean_list_a[val] + self._wiggle)
+        if self.order_id_dict[s_short] == 0:
+            order = self.place_order(k)
+            self.order_id_dict[s_short] = self.order_update_handle(order)
         else:
-            if self.order_id_dict[s_short] != 0:
-                self.cancel_order(self.order_id_dict[s_short])
-                self.order_id_dict[s_short] = 0
-        
-        if mean_list_b[val] - self._wiggle > price_array[-1][1]:
-            k = self._make_order(symbol, 10, mean_list_b[val] - self._wiggle / 2, .001)
-            if self.order_id_dict[s_long] == 0:
-                order = self.place_order(k)
-                self.order_id_dict[s_long] = self.order_update_handle(order)
-            else:
-                order = self.modify_order(self.order_id_dict[s_long], k)
-                self.order_id_dict[s_long] = self.order_update_handle(order)
+            order = self.modify_order(self.order_id_dict[s_short], k)
+            self.order_id_dict[s_short] = self.order_update_handle(order)
+
+
+        #This creates a limit order for a long right below the calculated theo - wiggle
+        #We want to place a new order if the old one was filled or modify it if it's not a good price anymore
+        k = self._make_order(symbol, 1, mean_list_b[val] - self._wiggle)
+        if self.order_id_dict[s_long] == 0:
+            order = self.place_order(k)
+            self.order_id_dict[s_long] = self.order_update_handle(order)
         else:
-            if self.order_id_dict[s_long] != 0:
-                self.cancel_order(self.order_id_dict[s_long])
-                self.order_id_dict[s_long] = 0
+            order = self.modify_order(self.order_id_dict[s_long], k)
+            self.order_id_dict[s_long] = self.order_update_handle(order)
+
 
     def handle_exchange_update(self, exchange_update_response):
         #Data Handle
-        
-        print(exchange_update_response.competitor_metadata)
+        #print(exchange_update_response.competitor_metadata)
         market = []
+        print(self._count)
+        #Iterate over the fills that we've recieved to store them and our position size
+        print(self.owned_shares)
+        for q in exchange_update_response.fills:
+            try:
+                order_key = q.order.asset_code
+                if q.order.quantity > 0:
+                    order_string = order_key + '_long'
+                elif q.order.quantity < 0:
+                    order_string = order_key + '_short'
+                old_id = self.order_id_dict[order_string]    
+                self.order_id_dict[order_string] = 0
+                self.owned_shares[order_key] += q.order.quantity 
+                self.cancel_order(old_id)
+            except KeyboardInterrupt:
+                break
+            #except:
+                 #print('Failure')   
+
         for z in exchange_update_response.market_updates:
             code = z.asset.asset_code
             bids = z.bids
@@ -99,10 +124,10 @@ class Case1(BaseExchangeServerClient):
             for x in bids:
                 bids_price.append(x.price)
             #cant iterate over the bids array. throws an error
-            bid = np.log(max(bids_price))
+            bid = max(bids_price)
             for y in asks:
                 asks_price.append(y.price)
-            ask = np.log(min(asks_price))
+            ask = min(asks_price)
             
             if code == 'K':
                 self.k_array.append(np.asarray([bid,ask]))
@@ -118,12 +143,8 @@ class Case1(BaseExchangeServerClient):
                 self.v_array.append(np.asarray([bid,ask]))
             else:
                 pass
-        
-        print(self._count)
         if self._count > 51:
-            self._wiggle = .001
-        
-            #This is ensure that we have a decent sample size
+            #This is ensure that we have a decent sample size. We are using a exponential decay to mimic a moving average time series
             K_mean_b = np.average(np.stack(self.k_array)[-51:-1][:,0], weights = np.array(self._weights), axis = 0)
             M_mean_b = np.average(np.stack(self.m_array)[-51:-1][:,0], weights = np.array(self._weights), axis = 0) 
             N_mean_b = np.average(np.stack(self.n_array)[-51:-1][:,0], weights = np.array(self._weights), axis = 0)
@@ -137,7 +158,9 @@ class Case1(BaseExchangeServerClient):
             Q_mean_a = np.average(np.stack(self.q_array)[-51:-1][:,1], weights = np.array(self._weights), axis = 0)
             U_mean_a = np.average(np.stack(self.u_array)[-51:-1][:,1], weights = np.array(self._weights), axis = 0)
             V_mean_a = np.average(np.stack(self.v_array)[-51:-1][:,1], weights = np.array(self._weights), axis = 0)
+            
 
+            #we fit a quintic polynomail to hopefully 
             mean_k_a = np.polyfit([1,2,3,4,5,6], [K_mean_a, M_mean_a, N_mean_a, Q_mean_a, U_mean_a, V_mean_a] , deg = 5)
             mean_k_b = np.polyfit([1,2,3,4,5,6], [K_mean_b, M_mean_b, N_mean_b, Q_mean_b, U_mean_b, V_mean_b] , deg = 5)
             
@@ -150,7 +173,6 @@ class Case1(BaseExchangeServerClient):
             self.order_creation(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'V', price_array = self.v_array )
         
         self._count+=1
-        print(self.order_id_dict)
     
         
 
