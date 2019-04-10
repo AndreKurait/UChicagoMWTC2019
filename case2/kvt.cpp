@@ -29,6 +29,7 @@ namespace kvt::pybind {
             .def_readwrite("comp", &kvt::Order::comp)
             .def_readwrite("spread", &kvt::Order::spread)
             .def_readwrite("bid", &kvt::Order::bid)
+            .def_readwrite("remaining", &kvt::Order::remaining)
             .def_readwrite("order_id", &kvt::Order::order_id);
 
         py::class_<kvt::Fill>(m, "Fill")
@@ -52,7 +53,7 @@ namespace kvt::pybind {
 
         py::bind_vector<std::vector<kvt::MarketUpdate>>(m, "MarketUpdates");
         py::bind_vector<std::vector<kvt::PriceLevel>>(m, "PriceLevels");
-        py::bind_vector<std::vector<kvt::Order*>>(m, "Orders");
+        py::bind_vector<std::vector<kvt::Order>>(m, "Orders");
 
         py::class_<kvt::Update>(m, "Update")
             .def(py::init<>())
@@ -65,7 +66,10 @@ namespace kvt::pybind {
             .def("place_order", &kvt::MarketMaker::place_order, py::keep_alive<1, 2>())
             .def("modify_order", &kvt::MarketMaker::modify_order, py::keep_alive<1, 2>())
             .def("order_failed", &kvt::MarketMaker::order_failed, py::keep_alive<1, 2>())
+            .def("new_market", &kvt::MarketMaker::new_market)
             .def("process_orders", &kvt::MarketMaker::process_orders)
+            .def("delta", &kvt::MarketMaker::delta)
+            .def("vega", &kvt::MarketMaker::vega)
             .def("get_and_clear_orders", &kvt::MarketMaker::get_and_clear_orders, pybind11::return_value_policy::reference)
             .def("get_and_clear_modifies", &kvt::MarketMaker::get_and_clear_modifies, pybind11::return_value_policy::reference);
     }

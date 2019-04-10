@@ -6,8 +6,10 @@ import kvt
 from client.exchange_service.client import BaseExchangeServerClient
 from protos.order_book_pb2 import Order
 from protos.service_pb2 import PlaceOrderResponse
+from protos.service_pb2 import ModifyOrderResponse
 
 from collections import deque
+import time
 
 class ExampleMarketMaker(BaseExchangeServerClient):
     def __init__(self, *args, **kwargs):
@@ -17,10 +19,10 @@ class ExampleMarketMaker(BaseExchangeServerClient):
                         "P98PHX", "P99PHX", "P100PHX", "P101PHX", "P102PHX",
                         "IDX#PHX"];
 
-        self.kernel = kvt.MarketMaker(5,   # straddle size
+        self.kernel = kvt.MarketMaker(10,   # straddle size
                                       10,  # max position size
-                                      10,   # liquidity depth
-                                      0.01, # reprice threshold
+                                      5,   # liquidity depth
+                                      1, # reprice threshold
                                       1.0) # delta max
 
         self.mid_market_price = {}
@@ -78,7 +80,6 @@ class ExampleMarketMaker(BaseExchangeServerClient):
         print("FINES: ", exchange_update_response.competitor_metadata.fines)
         print("COMMISSIONS: ", exchange_update_response.competitor_metadata.commissions)
         print("----------------")
-
         for fill in exchange_update_response.fills:
             fill_kvt = self.convert_fill(fill)
             self.kernel.handle_fill(fill_kvt)
@@ -104,6 +105,9 @@ class ExampleMarketMaker(BaseExchangeServerClient):
             update.market_updates.append(market_up)
         a = self.kernel.handle_update(update)
 
+        #self.kernel.new_market()
+        self.kernel.process_orders()
+
         # send orders
         orders_to_send = self.kernel.get_and_clear_orders()
         for order in orders_to_send:
@@ -114,6 +118,7 @@ class ExampleMarketMaker(BaseExchangeServerClient):
             else:
                 order_obj = self._make_mkt_order(kvt.asset_to_string(order.asset), order.size, order.bid)
             order_id = self.place_order(order_obj)
+            #print("new order!")
             if type(order_id) != PlaceOrderResponse:
                 print(order_id)
                 print(order_obj)
@@ -125,16 +130,30 @@ class ExampleMarketMaker(BaseExchangeServerClient):
         # modify orders
         modifies_to_send = self.kernel.get_and_clear_modifies()
         for modify in modifies_to_send:
+            #print("modify order!", modify.order_id)
             modify_obj = self._make_lmt_order(kvt.asset_to_string(modify.asset), modify.size, modify.price,
                                               modify.spread, modify.bid)
-            order_id = self.modify_order(modify.order_id, modify_obj)
+            '''
+            self.cancel_order(modify.order_id)
+            order_id = self.place_order(modify_obj)
             if type(order_id) != PlaceOrderResponse:
                 print(order_id)
-                print(order_obj)
+            else:
+                self.kernel.modify_order(modify, order_id.order_id)
+            '''
+            modify_obj.order_id = modify.order_id
+            modify_obj.remaining_quantity = modify.remaining
+            order_id = self.modify_order(modify.order_id, modify_obj)
+            if type(order_id) != ModifyOrderResponse:
+                #print(order_id)
+                #print(modify_obj)
+                #print("modify failed!")
                 quit()
+                print("MODIFY BOUNCED")
                 self.kernel.order_failed(modify)
             else:
                 self.kernel.modify_order(modify, order_id.order_id)
+
 
 
 if __name__ == "__main__":
