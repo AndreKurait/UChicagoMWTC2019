@@ -2,6 +2,7 @@
 #define __MARKET_MAKER_H_
 
 #include <algorithm>
+#include <chrono>
 #include <iostream>
 #include <list>
 #include <thread>
@@ -263,11 +264,14 @@ namespace kvt {
                 , greeks{0}
                 , lastHedgeId{0}
             {
+                start = std::chrono::system_clock::now();
                 portfolio_[0] = 0;
                 lastMidPrice_[0] = 0;
                 marketSpread_[0] = 0;
                 for(int asset = Asset::Type::IDXPHX + 1; asset < Asset::Type::Size; ++asset) {
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.6, straddle_size);
+                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.10, 10);
+                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.12, 10);
+                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.15, 10);
                     portfolio_[asset] = 0;
                     lastMidPrice_[asset] = 0;
                     marketSpread_[asset] = 0;
@@ -276,18 +280,16 @@ namespace kvt {
                     port_.set_call(asset, Asset::get_bs_type(static_cast<Asset::Type>(asset)));
                 }
 
-                thread_.reset(new std::thread(&MarketMaker::process_orders, this));
-                file.open("prices.txt");
+                //thread_.reset(new std::thread(&MarketMaker::process_orders, this));
             }
 
 
             int time = 0;
-            std::ofstream file;
             void handle_update(Update const& update) {
                 { // mutex scope
-                    std::lock_guard<std::mutex> lk(lastMidPriceMut_);
-                    std::lock_guard<std::mutex> lc(marketSpreadMut_);
-                    std::lock_guard<std::mutex> lr(portfolioMut_);
+                    // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lk(lastMidPriceMut_);
+                    // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lc(marketSpreadMut_);
+                    // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lr(portfolioMut_);
                     for(auto const& mu : update.market_updates) {
                         // This normalization of the double is to avoid order rejections
                         // due to minimum tick size
@@ -310,17 +312,27 @@ namespace kvt {
                         marketSpread_[mu.asset] = best_ask - best_bid;
                     }
                 }
+            }
 
+            void new_market() {
                 newMarket_.store(true);
             }
 
+            double vega() {
+                return port_.get_vega_exact();
+            }
+
+            double delta() {
+                return port_.get_delta_exact();
+            }
+
             void handle_fill(Fill const& fill) {
-                std::lock_guard<std::mutex> lk(fillsMut_);
+                // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lk(fillsMut_);
                 fills_.push_back(fill);
             }
 
             void place_order(Order const& order, std::string order_id) {
-                std::lock_guard<std::mutex> lk(ordersMut_);
+                // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lk(ordersMut_);
                 if(Order::Strategy::MarketMaking == order.strategy) {
                     if(order.bid) {
                         orders_[order_id] = order.loc.spread->bid.get();
@@ -332,17 +344,23 @@ namespace kvt {
                 } else {
                     orders_[order_id] = hedgeOrders_[order.loc.hedgeId].get();
                 }
+                orders_[order_id]->order_id = order_id;
             }
 
             void modify_order(Order const& order, std::string order_id) {
-                //std::lock_guard<std::mutex> lk(ordersMut_);
+                auto* tmp = orders_[order.order_id];
+                orders_[order.order_id] = nullptr;
+                orders_[order_id] = tmp;
+                orders_[order_id]->order_id = order_id;
+                //std::cout << order.order_id << " | " << order_id << std::endl;
+                //// std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lk(ordersMut_);
                 //orders_[order.self->order_id] = nullptr;
                 //order.self->order_id = order_id;
                 //orders_[order_id] = order.self;
             }
 
             void order_failed(Order const& order) {
-                std::lock_guard<std::mutex> lk(ordersMut_);
+                // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lk(ordersMut_);
                 if(Order::Strategy::MarketMaking == order.strategy) {
                     if(order.bid) {
                         orders_[order.order_id] = nullptr;
@@ -357,67 +375,82 @@ namespace kvt {
                 }
             }
 
-            std::vector<Order*> get_and_clear_orders() {
-                std::lock_guard<std::mutex> lk(pendingOrdersMut_);
-                std::vector<Order*> orders;
+            std::vector<Order> get_and_clear_orders() {
+                // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lk(pendingOrdersMut_);
+                std::vector<Order> orders;
                 orders.swap(pendingOrders_);
                 return orders;
             }
 
-            std::vector<Order*> get_and_clear_modifies() {
-                std::lock_guard<std::mutex> lk(modifyOrdersMut_);
-                std::vector<Order*> orders;
+            std::vector<Order> get_and_clear_modifies() {
+                // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lk(modifyOrdersMut_);
+                std::vector<Order> orders;
                 orders.swap(modifyOrders_);
                 return orders;
             }
 
             void populate_spreads(Spread& spread, bool bid) {
                 auto& existing_order = (bid) ? spread.bid : spread.ask;
+                auto& pending_flag   = (bid) ? spread.pendingBid : spread.pendingAsk;
 
-                if(!existing_order || existing_order->remaining <= 0) {
+                // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> ll(portfolioMut_);
+
+                if(!existing_order || existing_order->remaining == 0) {
                     if((bid && port_[spread.asset] >= 100) || (!bid && port_[spread.asset] <= -100)) {
                         return;
                     }
 
-                    if((portfolio_[spread.asset] > position_max_ && bid)
-                            || (portfolio_[spread.asset] < (-1 * position_max_) && !bid)) {
-                        //existing_order.reset(nullptr);
-                        //return;
+                    if(existing_order) {
+                        orders_[existing_order->order_id] = nullptr;
                     }
+
                     lastMidPriceMut_.lock();
                     auto last_price = lastMidPrice_[spread.asset];
                     lastMidPriceMut_.unlock();
+
                     if(last_price > 0.01) {
-                        if(existing_order) {
-                            std::lock_guard<std::mutex> ll(ordersMut_);
-                            orders_[existing_order->order_id] = nullptr;
-                        }
                         existing_order.reset(new Order());
                         existing_order->asset       = spread.asset;
                         existing_order->strategy    = Order::Strategy::MarketMaking;
                         existing_order->loc.spread  = &spread;
-                        existing_order->price       = last_price;
+                        existing_order->price       = port_.option_price(spread.asset); //last_price;
                         existing_order->spread      = spread.spread;
                         existing_order->size        = spread.size;
                         existing_order->remaining   = spread.size;
                         existing_order->type        = Order::OrderType::Limit;
                         existing_order->bid         = bid;
-                        std::lock_guard<std::mutex> lc(pendingOrdersMut_);
-                        pendingOrders_.push_back(existing_order.get());
+                        // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lc(pendingOrdersMut_);
+                        pendingOrders_.push_back(*existing_order);
+                        pending_flag = true;
                     }
-                } else {
+                } else if(!pending_flag) {
                     bool modify = false;
-                    std::lock_guard<std::mutex> lk(marketSpreadMut_);
-                    std::lock_guard<std::mutex> lc(lastMidPriceMut_);
+                    // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lk(marketSpreadMut_);
+                    // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lc(lastMidPriceMut_);
 
+/*
+                    if(abs(marketSpread_[spread.asset] - spread.spread > 0.03)) {
+                        modify = true;
+                        spread.spread = marketSpread_[spread.asset];
+                        existing_order->spread = spread.spread;
+                    }
+                    if(abs(port_.option_price(spread.asset) - existing_order->price) > 0.05) {
+                        modify = true;
+                        existing_order->price = port_.option_price(spread.asset);
+                    }
+*/
+                    if(abs(port_.option_price(spread.asset) - existing_order->price) > 0.05) {
+                        modify = true;
+                        existing_order->price = port_.option_price(spread.asset);
+                    }
+                    /*
                     // Tighten or loosen our spread
-                    if((marketSpread_[spread.asset] + 0.02 <= spread.spread)
-                            || (marketSpread_[spread.asset] >= spread.spread + 0.02)) {
+                    if((marketSpread_[spread.asset] + 0.04 <= spread.spread)
+                            || (marketSpread_[spread.asset] >= spread.spread + 0.04)) {
                         modify                    = true;
                         spread.spread             = marketSpread_[spread.asset];
                         existing_order->spread    = spread.spread;
-                        existing_order->size      = existing_order->remaining;
-                        existing_order->remaining = 0;
+                        //existing_order->size      = existing_order->remaining;
                         existing_order->price     = lastMidPrice_[spread.asset];
                     } else if(bid && (
                                 (lastMidPrice_[spread.asset] - existing_order->price > (spread.spread/2.0 - reprice_thresh_))
@@ -425,41 +458,48 @@ namespace kvt {
                         modify                    = true;
                         existing_order->price     = lastMidPrice_[spread.asset];
                         existing_order->size      = existing_order->remaining;
-                        existing_order->remaining = 0;
                     } else if(!bid && (
                                (existing_order->price - lastMidPrice_[spread.asset] > (spread.spread/2.0 - reprice_thresh_))
                             || (existing_order->price - lastMidPrice_[spread.asset] < (spread.spread/2.0 + reprice_thresh_)))) {
                         modify                    = true;
                         existing_order->price     = lastMidPrice_[spread.asset];
                         existing_order->size      = existing_order->remaining;
-                        existing_order->remaining = 0;
                     }
-
-                    if(false && modify) {
-                        std::lock_guard<std::mutex> ll(modifyOrdersMut_);
-                        modifyOrders_.push_back(existing_order.get());
+*/
+                    if(modify) {
+                        // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> ll(modifyOrdersMut_);
+                        modifyOrders_.push_back(*existing_order);
                     }
                 }
             }
 
             void process_fills() {
-                std::lock_guard<std::mutex> lk(fillsMut_);
-                std::lock_guard<std::mutex> lc(ordersMut_);
-                std::lock_guard<std::mutex> lr(portfolioMut_);
+                // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lk(fillsMut_);
+                // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lc(ordersMut_);
+                // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lr(portfolioMut_);
                 for(auto const& fill : fills_) {
                     if(fill.order.bid) {
-                        portfolio_[fill.order.asset] += fill.filled;
                         port_[fill.order.asset] += fill.filled;
-                        if(fill.order.strategy == Order::Strategy::Hedge) {
+                        if(orders_[fill.order.order_id]->strategy == Order::Strategy::Hedge) {
                             port_.add_pending(fill.order.asset, -1 * fill.filled);
                         }
                     } else {
-                        portfolio_[fill.order.asset] -= fill.filled;
                         port_[fill.order.asset] -= fill.filled;
-                        if(fill.order.strategy == Order::Strategy::Hedge) {
+                        if(orders_[fill.order.order_id]->strategy == Order::Strategy::Hedge) {
                             port_.add_pending(fill.order.asset, fill.filled);
                         }
                     }
+                    if(orders_[fill.order.order_id] == nullptr) {
+                        std::cout << "asdf" << std::endl;
+                    } else {
+                        orders_[fill.order.order_id]->remaining -= fill.filled;
+                        if(orders_[fill.order.order_id]->strategy == Order::Strategy::Hedge
+                                && orders_[fill.order.order_id]->remaining <= 0) {
+                            // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> ll(hedgeOrdersMut_);
+                            hedgeOrders_.erase(orders_[fill.order.order_id]->loc.hedgeId);
+                        }
+                    }
+                    /*
                     if(orders_[fill.order.order_id] == nullptr) {
                         continue;
                     }
@@ -468,29 +508,42 @@ namespace kvt {
                             && orders_[fill.order.order_id]->strategy == Order::Strategy::Hedge) {
                         //std::cout << "kill hedge!" << std::endl;
                         //delete orders_[fill.order.order_id];
-                    }
+                    }*/
                 }
                 fills_.clear();
             }
 
             void process_orders() {
+/*
                 while(true) {
                     if(!newMarket_.load()) {
                         continue;
                     }
 
+                    port_.compute_greeks();
+
+                    newMarket_.store(false);
+
+                    continue;
+*/
+                    for(int i = 0; i < Asset::Size; ++i) {
+                        std::cout << Asset::to_str(static_cast<Asset::Type>(i)) << ": " << port_[i] << std::endl;
+                    }
+
+                    port_.set_time(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - start).count());
                     process_fills();
+
+                    port_.compute_greeks();
 
                     for(auto& spread : spreads_) {
                         populate_spreads(spread, true);
                         populate_spreads(spread, false);
                     }
 
-                    std::lock_guard<std::mutex> lr(portfolioMut_);
+                    // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lr(portfolioMut_);
                     for(int i = 0; i < Asset::Size; ++i) {
                         //std::cout << i << " " << port_[i] << std::endl;
                     }
-                    port_.compute_greeks();
                     //std::cout << "vega: " << port_.get_vega() << std::endl;
                     //std::cout << "delta: " << port_.get_delta() << std::endl;
 
@@ -528,141 +581,35 @@ namespace kvt {
                         vega_hedge_order->type = Order::OrderType::Market;
                         vega_hedge_order->price = 0;
                         vega_hedge_order->loc.hedgeId = ++lastHedgeId;
-                        std::lock_guard<std::mutex> lk(pendingOrdersMut_);
-                        pendingOrders_.push_back(vega_hedge_order.get());
+                        // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lk(pendingOrdersMut_);
+                        pendingOrders_.push_back(*vega_hedge_order);
                         port_.add_pending(i, vega_hedge_order->size * (vega_hedge_order->bid ? 1 : -1));
-                        std::lock_guard<std::mutex> ll(hedgeOrdersMut_);
+                        // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> ll(hedgeOrdersMut_);
                         hedgeOrders_[vega_hedge_order->loc.hedgeId] = std::move(vega_hedge_order);
                     }
                     }
                     if(port_.get_delta() > delta_limit_ || port_.get_delta() < (-1 * delta_limit_)) {
-                        if(abs(port_.get_delta()) <= 500) {
-                            auto hedge    = std::make_unique<Order>();
-                            hedge->asset    = Asset::IDXPHX;
-                            hedge->strategy = Order::Strategy::Hedge;
-                            hedge->size     = abs(static_cast<int>(port_.get_delta()));
-                            hedge->type     = Order::OrderType::Market;
-                            hedge->price    = 1;
-                            hedge->bid      = port_.get_delta() < 0;
-                            hedge->loc.hedgeId = ++lastHedgeId;
-                            std::lock_guard<std::mutex> lc(pendingOrdersMut_);
-                            pendingOrders_.push_back(hedge.get());
-                            port_.add_pending(0, hedge->size * (hedge->bid ? 1 : -1));
-                            std::lock_guard<std::mutex> ll(hedgeOrdersMut_);
-                            hedgeOrders_[hedge->loc.hedgeId] = std::move(hedge);
-                        }
-                    }
-
-                    //std::cout << "hedged vega: " << port_.get_vega() << std::endl;
-                    //std::cout << "hedged delta: " << port_.get_delta() << std::endl;
-
-                    /*
-                    for(int i = Asset::IDXPHX + 1; i < Asset::Size; ++i) {
-                        double annualized_vol = SQRT_252 * implied_volatility(
-                            lastMidPrice_[i],
-                            lastMidPrice_[static_cast<int>(Asset::IDXPHX)],
-                            Asset::get_strike(static_cast<Asset::Type>(i)),
-                            0.16666666,
-                            0,
-                            Asset::get_bs_type(static_cast<Asset::Type>(i))
-                        );
-
-                    }
-
-
-                    double vega_hedged_portfolio[Asset::Size] = {0};
-                    if(greeks++ % 4 == 0) {
-                        if(vega_portfolio > 100) {
-                        int total_exposure = 0;
-                        for(int i = 1; i < Asset::Size; ++i) {
-                            if((vega_portfolio > 0 && portfolio_[i] > 0)
-                                || (vega_portfolio < 0 && portfolio_[i] < 0)) {
-                                total_exposure += portfolio_[i];
-                            }
-                        }
-                        for(int i = 1; i < Asset::Size; ++i) {
-                            if((vega_portfolio > 0 && portfolio_[i] < 0)
-                                || (vega_portfolio < 0 && portfolio_[i] > 0)) {
-                                continue;
-                            }
-                            double vega_of_hedge = vega(
-                                Asset::get_bs_type(static_cast<Asset::Type>(i)),
-                                lastMidPrice_[Asset::IDXPHX],
-                                Asset::get_strike(static_cast<Asset::Type>(i)),
-                                0.166666666,
-                                0,
-                                SQRT_252 * implied_volatility(
-                                    lastMidPrice_[static_cast<Asset::Type>(i)],
-                                    lastMidPrice_[static_cast<int>(Asset::IDXPHX)],
-                                    Asset::get_strike(static_cast<Asset::Type>(i)),
-                                    0.16666666,
-                                    0,
-                                    Asset::get_bs_type(static_cast<Asset::Type>(i))
-                                )
-                            );
-                            auto vega_hedge_order = new Order();
-                            vega_hedge_order->asset = static_cast<Asset::Type>(i);
-                            vega_hedge_order->strategy = Order::Strategy::Hedge;
-                            vega_hedge_order->bid = vega_portfolio < 0;
-                            double rat = static_cast<double>(portfolio_[i]) / total_exposure;
-                            vega_hedge_order->size = abs(round(rat * (vega_portfolio / vega_of_hedge)));
-                            if(vega_hedge_order->size == 0) {
-                                continue;
-                            }
-                            vega_hedged_portfolio[i] = vega_hedge_order->size * (vega_hedge_order->bid ? 1 : -1);
-                            vega_hedge_order->type = Order::OrderType::Market;
-                            vega_hedge_order->price = 0;
-                            vega_hedge_order->failed = 0;
-                            vega_hedge_order->self = vega_hedge_order;
-                            {
-                                std::lock_guard<std::mutex> lk(pendingOrdersMut_);
-                                pendingOrders_.push_back(*vega_hedge_order);
-                            }
-                        }
-                        }
-
-                    for(int i = Asset::IDXPHX + 1; i < Asset::Size; ++i) {
-                        std::lock_guard<std::mutex> lk(lastMidPriceMut_);
-                        double annualized_vol = SQRT_252 * implied_volatility(
-                            lastMidPrice_[i],
-                            lastMidPrice_[static_cast<int>(Asset::IDXPHX)],
-                            Asset::get_strike(static_cast<Asset::Type>(i)),
-                            0.16666666,
-                            0,
-                            Asset::get_bs_type(static_cast<Asset::Type>(i))
-                        );
-                        delta_portfolio += (portfolio_[i] + vega_hedged_portfolio[i]) * delta(
-                            Asset::get_bs_type(static_cast<Asset::Type>(i)),
-                            lastMidPrice_[Asset::IDXPHX],
-                            Asset::get_strike(static_cast<Asset::Type>(i)),
-                            0.1666666,
-                            0,
-                            annualized_vol
-                        );
-                    }
-                    delta_portfolio += portfolio_[Asset::IDXPHX];
-
-                    std::cout << "delta: " << delta_portfolio << std::endl;
-                    std::cout << "vega: " << vega_portfolio/100.0 << std::endl;
-
-                    // hedge delta
-                    if(delta_portfolio > delta_limit_ || delta_portfolio < (-1 * delta_limit_)) {
-                        Order* hedge    = new Order();
+                        auto hedge    = std::make_unique<Order>();
                         hedge->asset    = Asset::IDXPHX;
                         hedge->strategy = Order::Strategy::Hedge;
-                        hedge->size     = abs(static_cast<int>(delta_portfolio));
+                        hedge->size     = abs(static_cast<int>(port_.get_delta()));
                         hedge->type     = Order::OrderType::Market;
                         hedge->price    = 1;
-                        hedge->bid      = delta_portfolio < 0;
-                        hedge->failed   = false;
-                        hedge->self     = hedge;
-                        std::lock_guard<std::mutex> lk(pendingOrdersMut_);
+                        hedge->bid      = port_.get_delta() < 0;
+                        hedge->loc.hedgeId = ++lastHedgeId;
+                        // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lc(pendingOrdersMut_);
                         pendingOrders_.push_back(*hedge);
+                        port_.add_pending(0, hedge->size * (hedge->bid ? 1 : -1));
+                        // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> ll(hedgeOrdersMut_);
+                        hedgeOrders_[hedge->loc.hedgeId] = std::move(hedge);
                     }
-                    }
-                */
+                    std::cout << "hedged vega: " << port_.get_vega() << std::endl;
+                    std::cout << "hedged delta: " << port_.get_delta() << std::endl;
+                    std::cout << "vega: " << vega() << std::endl;
+                    std::cout << "delta: " << delta() << std::endl;
+
                     newMarket_.store(false);
-                }
+                //}
             }
 
         private:
@@ -673,6 +620,8 @@ namespace kvt {
             double delta_limit_;
 
             int greeks;
+
+            std::chrono::system_clock::time_point start;
 
             std::mutex portfolioMut_;
             Portfolio<Asset::Size> port_;
@@ -696,11 +645,11 @@ namespace kvt {
 
             // orders generated in processing thread which we are waiting to place
             std::mutex pendingOrdersMut_;
-            std::vector<Order*> pendingOrders_;
+            std::vector<Order> pendingOrders_;
 
             // orders to be modified
             std::mutex modifyOrdersMut_;
-            std::vector<Order*> modifyOrders_;
+            std::vector<Order> modifyOrders_;
 
             // what spreads are we trading?
             std::vector<Spread> spreads_;
