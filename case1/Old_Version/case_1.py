@@ -15,9 +15,7 @@ class Case1(BaseExchangeServerClient):
     def __init__(self, *args, **kwargs):
         BaseExchangeServerClient.__init__(self, *args, **kwargs)
         self.open_orderids = set([])
-        
         self._count = 0
-        self._mid_market = []
         self.k_array = []
         self.m_array = []
         self.n_array = []
@@ -25,7 +23,7 @@ class Case1(BaseExchangeServerClient):
         self.u_array = []
         self.v_array = []
         #some arbitrary price calculation. probably will do something w/ the standard deviation that makes it better
-        self._wiggle = .5
+        self._wiggle = .001
         
         #This is used to relate the symbol to the index of the arrays
         self._symbol_dict = {'K': 0,
@@ -42,18 +40,17 @@ class Case1(BaseExchangeServerClient):
         self.order_id_dict = {}
         self.reversion_dict = {}
         self.price_dict = {}
-        self.market_data = {}
         for x in ['K', 'M', 'N', 'Q', 'U', 'V']:
-            self.order_id_dict[x + '_short'] = [0, [0]]
-            self.order_id_dict[x + '_long'] = [0, [0]]
-            self.price_dict[x + '_short'] = [0, [0]]
-            self.price_dict[x + '_long'] = [0, [0]]
-            self.reversion_dict[x + '_short'] = [0, [0]]
-            self.reversion_dict[x + '_long'] = [0, [0]]
-            self.market_data[x] = []
+            self.order_id_dict[x + '_short'] = 0
+            self.order_id_dict[x + '_long'] = 0
+            self.price_dict[x + '_short'] = 0
+            self.price_dict[x + '_long'] = 0
+            self.reversion_dict[x + '_short'] = 0
+            self.reversion_dict[x + '_long'] = 0
+
         #This is used to calculated the exponential weights needed for the MA time series
         self._weights = []
-        for x in range(0,29):
+        for x in range(0,50):
             self._weights.append(math.e**-x)
         
         #This is used to know what amount of shares we have
@@ -62,21 +59,21 @@ class Case1(BaseExchangeServerClient):
             self.owned_shares[x] = 0
 
 
-    def _make_order(self, asset_code, quantity, base_price, order_type = Order.ORDER_LMT, bid=True):
+    def _make_order(self, asset_code, quantity, base_price, bid=True):
         base_price = float(format(base_price, '.2f'))
         return Order(asset_code = asset_code, quantity=quantity,
-                     order_type = order_type,
+                     order_type = Order.ORDER_LMT,
                      price = base_price,
                      competitor_identifier = self._comp_id)
 
     def order_update_handle(self, order):
         #Don't want to hold failed orders
         if type(order) != PlaceOrderResponse:
-            return 0
+            pass
         else:
             return order.order_id
     
-    def order_creation(self, mean_list, symbol):
+    def order_creation(self, mean_list_a, mean_list_b, symbol, price_array):
         val = self._symbol_dict[symbol]
         s_short = symbol + '_short'
         s_long = symbol + '_long'
@@ -84,63 +81,66 @@ class Case1(BaseExchangeServerClient):
 
         #This creates a limit order for a short right above the calculated theo + wiggle
         #We want to place a new order if the old one was filled or modify it if it's not a good price anymore
-        k = self._make_order(symbol, -1, mean_list[val] + self._wiggle)
-        #If the first value is 0, this means there is not a current order for this spread
-        if self.order_id_dict[s_short][0] == 0:
+        k = self._make_order(symbol, -1, mean_list_a[val] + self._wiggle)
+        if self.order_id_dict[s_short] == 0:
             order = self.place_order(k)
-            self.order_id_dict[s_short][0] = self.order_update_handle(order)
-            self.order_id_dict[s_short][1] = [mean_list[val] + self._wiggle / 2, mean_list[val] + self._wiggle * 1.5]
-        print(self.order_id_dict[s_short][1])
-        print(type(self.order_id_dict[s_short][1][1]))
-        time.sleep(500)
-        #If the value is not in the range specified by the second list in the order_id_dict, that means it's not longer good, and we want to modify it
-        if mean_list[val] < self.order_id_dict[s_short][1][0] or mean_list[s_short] > self.order_id_dict[s_short][1][1]:
+            self.order_id_dict[s_short] = self.order_update_handle(order)
+        else:
             order = self.modify_order(self.order_id_dict[s_short], k)
-            self.order_id_dict[s_short][0] = self.order_update_handle(order)
-            self.order_id_dict[s_short][1] = [mean_list[val] + self._wiggle / 2, mean_list[val] + self._wiggle * 1.5]
-    
+            self.order_id_dict[s_short] = self.order_update_handle(order)
+
+
         #This creates a limit order for a long right below the calculated theo - wiggle
         #We want to place a new order if the old one was filled or modify it if it's not a good price anymore
-        k = self._make_order(symbol, 1, mean_list[val] - self._wiggle)
-        if self.order_id_dict[s_long][0] == 0:
+        k = self._make_order(symbol, 1, mean_list_b[val] - self._wiggle)
+        if self.order_id_dict[s_long] == 0:
             order = self.place_order(k)
-            self.order_id_dict[s_long][0] = self.order_update_handle(order)
-            self.order_id_dict[s_long][1] = [mean_list[val] - self._wiggle / 2, mean_list[val] - self._wiggle * 1.5]
-        #If the value is not in the range specified by the second list in the order_id_dict, that means it's not longer good, and we want to modify it
-        if mean_list[val] > self.order_id_dict[s_long][1][0] or mean_list[s_long] < self.order_id_dict[s_long][1][1]:
+            self.order_id_dict[s_long] = self.order_update_handle(order)
+        else:
             order = self.modify_order(self.order_id_dict[s_long], k)
             self.order_id_dict[s_long] = self.order_update_handle(order)
-        
+    
 
 
 
 
-    def hedging(self, mean_list):
+    def mean_reversion(self, mean_list_a, mean_list_b, symbol, price_array):
         #the idea here is that if the mean reverts we sell what we have
         #may want to impliment order cancelling
-        exposure = 0
-        mid_exposure = 0
-        for key, values in self.owned_shares.items():
-            exposure += values
-            #Generally these are hedges
-            if key != 'K' or key != 'V':
-                mid_exposure += values
-        if abs(exposure) > 10 and abs(mid_exposure) > 10:
-            quant =  mid_exposure / -2
-            k = self._make_order(asset_code = 'K', quantity = quant, base_price = mean_list[0], order_type = Order.ORDER_MKT)
-            order1 = self.place_order(k)
-            v = self._make_order(asset_code = 'V', quantity = quant, base_price = mean_list[5], order_type = Order.ORDER_MKT)
-            order = self.place_order(v)
-            if self.order_update_handle(order1) != 0:
-                self.owned_shares['K']+= quant
-            if self.order_update_handle(order) != 0:
-                self.owned_shares['V']+= quant
+        val = self._symbol_dict[symbol]
+        s_short = symbol + '_short'
+        s_long = symbol + '_long'
+        if self.owned_shares[symbol] < 0:
+            if mean_list_a[val] + self._wiggle / 4 > price_array[-1][1]:
+                k = self._make_order(symbol, self.owned_shares[symbol] * -1, price_array[-1][1])
+                if self.reversion_dict[s_short] == 0:
+                    order = self.place_order(k)
+                    self.reversion_dict[s_short] = self.order_update_handle(order)
+                else:
+                    order = self.modify_order(self.reversion_dict[s_short], k)
+                    self.reversion_dict[s_short] = self.order_update_handle(order)
 
+        if self.owned_shares[symbol] > 0:
+            if mean_list_b[val] - self._wiggle / 4 < price_array[-1][0]:
+                k = self._make_order(symbol, self.owned_shares[symbol] * -1, price_array[-1][0])
+                if self.reversion_dict[s_long] == 0:
+                    order = self.place_order(k)
+                    self.reversion_dict[s_long] = self.order_update_handle(order)
+                else:
+                    order = self.modify_order(self.reversion_dict[s_long], k)
+                    self.reversion_dict[s_long] = self.order_update_handle(order)
+
+
+    def risk_limits():
+        #unimplimented. Will dump orders when near risk limits. may not be needed because of the mean_reversion
+
+        return ''
+    
+    
     def handle_exchange_update(self, exchange_update_response):
         #Data Handle
-        if len(exchange_update_response.market_updates) == 0:
-            return
         print(exchange_update_response.competitor_metadata)
+        market = []
         print(self._count)
         #Iterate over the fills that we've recieved to store them and our position size
         print(self.owned_shares)
@@ -153,11 +153,14 @@ class Case1(BaseExchangeServerClient):
                     order_string = order_key + '_long'
                 elif q.order.quantity < 0:
                     order_string = order_key + '_short'
-                #fix the iteration
                 for values, ids in self.order_id_dict.items():
-                    if ids[0] == q.order.order_id:
-                        old_id = self.order_id_dict[order_string][0]
-                        self.order_id_dict[order_string][0] = 0
+                    if ids == q.order.order_id:
+                        old_id = self.order_id_dict[order_string]
+                        self.order_id_dict[order_string] = 0
+                for values, ids in self.reversion_dict.items():
+                    if ids == q.order.order_id:
+                        old_id = self.reversion_dict[order_string]
+                        self.reversion_dict[order_string] = 0    
                 self.owned_shares[order_key] += q.order.quantity 
                 #just in case
                 self.cancel_order(old_id)
@@ -170,29 +173,70 @@ class Case1(BaseExchangeServerClient):
 
         for z in exchange_update_response.market_updates:
             code = z.asset.asset_code
-            #bids = z.bids
-            #asks = z.asks
-            mid_market = z.mid_market_price            
-            self.market_data[code].append(mid_market)
-            #I guess we also want the spread
-
-        if self._count > 30:
+            bids = z.bids
+            asks = z.asks
+            mid_market = z.mid_market_price
+            market.append(mid_market)
+            bids_price = []
+            asks_price = []
+            #generators dont seem to work. must be the protos datatype
+            for x in bids:
+                bids_price.append(x.price)
+            #cant iterate over the bids array. throws an error
+            bid = max(bids_price)
+            for y in asks:
+                asks_price.append(y.price)
+            ask = min(asks_price)
+            
+            if code == 'K':
+                self.k_array.append(np.asarray([bid,ask]))
+            elif code == 'M':
+                self.m_array.append(np.asarray([bid,ask]))
+            elif code == 'N':
+                self.n_array.append(np.asarray([bid,ask])) 
+            elif code == 'Q':
+                self.q_array.append(np.asarray([bid,ask]))
+            elif code == 'U':
+                self.u_array.append(np.asarray([bid,ask]))
+            elif code == 'V':
+                self.v_array.append(np.asarray([bid,ask]))
+            else:
+                pass
+        if self._count > 51:
             #This is ensure that we have a decent sample size. We are using a exponential decay to mimic a moving average time series
-            K_mean = np.average(self.market_data['K'][-30:-1], weights = np.array(self._weights))
-            M_mean = np.average(self.market_data['M'][-30:-1], weights = np.array(self._weights))
-            N_mean = np.average(self.market_data['N'][-30:-1], weights = np.array(self._weights))
-            Q_mean = np.average(self.market_data['Q'][-30:-1], weights = np.array(self._weights))
-            U_mean = np.average(self.market_data['U'][-30:-1], weights = np.array(self._weights))
-            V_mean = np.average(self.market_data['V'][-30:-1], weights = np.array(self._weights))
+            K_mean_b = np.average(np.stack(self.k_array)[-51:-1][:,0], weights = np.array(self._weights), axis = 0)
+            M_mean_b = np.average(np.stack(self.m_array)[-51:-1][:,0], weights = np.array(self._weights), axis = 0) 
+            N_mean_b = np.average(np.stack(self.n_array)[-51:-1][:,0], weights = np.array(self._weights), axis = 0)
+            Q_mean_b = np.average(np.stack(self.q_array)[-51:-1][:,0], weights = np.array(self._weights), axis = 0)
+            U_mean_b = np.average(np.stack(self.u_array)[-51:-1][:,0], weights = np.array(self._weights), axis = 0)
+            V_mean_b = np.average(np.stack(self.v_array)[-51:-1][:,0], weights = np.array(self._weights), axis = 0)
+            
+            K_mean_a = np.average(np.stack(self.k_array)[-51:-1][:,1], weights = np.array(self._weights), axis = 0)
+            M_mean_a = np.average(np.stack(self.m_array)[-51:-1][:,1], weights = np.array(self._weights), axis = 0)
+            N_mean_a = np.average(np.stack(self.n_array)[-51:-1][:,1], weights = np.array(self._weights), axis = 0)
+            Q_mean_a = np.average(np.stack(self.q_array)[-51:-1][:,1], weights = np.array(self._weights), axis = 0)
+            U_mean_a = np.average(np.stack(self.u_array)[-51:-1][:,1], weights = np.array(self._weights), axis = 0)
+            V_mean_a = np.average(np.stack(self.v_array)[-51:-1][:,1], weights = np.array(self._weights), axis = 0)
             
 
             #we fit a quintic polynomail to hopefully 
-            mean_k = np.polyfit([1,2,3,4,5,6], [K_mean, M_mean, N_mean, Q_mean, U_mean, V_mean] , deg = 5)
-             
-            for x in ['K', 'M', 'N', 'Q', 'U', 'V']:
-                self.order_creation(mean_list = mean_k, symbol = x)
+            mean_k_a = np.polyfit([1,2,3,4,5,6], [K_mean_a, M_mean_a, N_mean_a, Q_mean_a, U_mean_a, V_mean_a] , deg = 5)
+            mean_k_b = np.polyfit([1,2,3,4,5,6], [K_mean_b, M_mean_b, N_mean_b, Q_mean_b, U_mean_b, V_mean_b] , deg = 5)
+            
+            #_make_order(self, asset_code, quantity, base_price, spread, bid=True):
+            self.order_creation(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'K', price_array = self.k_array )
+            self.order_creation(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'M', price_array = self.m_array )
+            self.order_creation(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'N', price_array = self.n_array )
+            self.order_creation(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'Q', price_array = self.q_array )
+            self.order_creation(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'U', price_array = self.u_array )
+            self.order_creation(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'V', price_array = self.v_array )
 
-            self.hedging(mean_k)
+            self.mean_reversion(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'K', price_array = self.k_array )
+            self.mean_reversion(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'M', price_array = self.m_array )
+            self.mean_reversion(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'N', price_array = self.n_array )
+            self.mean_reversion(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'Q', price_array = self.q_array )
+            self.mean_reversion(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'U', price_array = self.u_array )
+            self.mean_reversion(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'V', price_array = self.v_array )
 
         self._count+=1
     
@@ -214,6 +258,7 @@ class Case1(BaseExchangeServerClient):
             # self._aarray.append(asks_array) 
             # print(self._barray)
             # time.sleep(5)
+            # print('nice')
         #print(exchange_update_response.market_updates)
         # self._count+=1
         # if self._count == 20:
