@@ -138,9 +138,9 @@ class Case1(BaseExchangeServerClient):
         if abs(exposure - mid_exposure) >= 4:
             quant =  math.trunc((exposure - mid_exposure) / -2)
             # print('HEDGING: ', quant)
-            k = self._make_order(asset_code = 'K', quantity = quant , base_price=mean_list[self._symbol_dict['K']]-.01*(exposure - mid_exposure)/abs((exposure - mid_exposure)), order_type = Order.ORDER_LMT)
+            k = self._make_order(asset_code = 'K', quantity = quant, order_type = Order.ORDER_MKT)
             self.place_order(k)
-            v = self._make_order(asset_code = 'V', quantity = quant, base_price=mean_list[self._symbol_dict['V']]-.01*(exposure - mid_exposure)/abs((exposure - mid_exposure)), order_type = Order.ORDER_LMT)
+            v = self._make_order(asset_code = 'V', quantity = quant,  order_type = Order.ORDER_MKT)
             self.place_order(v)
             # k = self._make_order(asset_code = 'M', quantity = quant , base_price=mean_list[self._symbol_dict['M']], order_type = Order.ORDER_LMT)
             # self.place_order(k)
@@ -217,7 +217,7 @@ class Case1(BaseExchangeServerClient):
         # print(curMarket)
         if self._dumped:
             self._dumped = False
-            for i in range(0,29):
+            for i in range(0,5):
                 for z in exchange_update_response.market_updates:
                     code = z.asset.asset_code
                     #bids = z.bids
@@ -225,9 +225,9 @@ class Case1(BaseExchangeServerClient):
                     mid_market = z.mid_market_price         
                     self.market_data[code].append(mid_market)
         backLook = self._count
-        if self._count > 30:
+        if self._count > 5:
             #This is ensure that we have a decent sample size. We are using a exponential decay to mimic a moving average time series
-            backLook=30
+            backLook=5
         if self._count > 4:
             K_mean = np.average(self.market_data['K'][-1*backLook:-1], weights = np.array(self._weights)[0:backLook-1])
             M_mean = np.average(self.market_data['M'][-1*backLook:-1], weights = np.array(self._weights)[0:backLook-1])
@@ -249,8 +249,8 @@ class Case1(BaseExchangeServerClient):
                 self.dump()
                 self._dumped = True
             else:
-                self.order_creation(curMarket)
-                self.hedging(curMarket)
+                self.order_creation(mean_k)
+                self.hedging(mean_k)
             # print("MeanK: ",mean_k)
             # print("MidMarket: ",curMarket)
             # # print("MeanPoly: ",meanpoly)
