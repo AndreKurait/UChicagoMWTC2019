@@ -270,6 +270,8 @@ namespace kvt {
                 , reprice_thresh_{reprice_thresh}
                 , delta_limit_{delta_limit}
                 , greeks{0}
+                , last_time{0}
+                , penalty{0}
                 , lastHedgeId{0}
             {
                 start = std::chrono::system_clock::now();
@@ -278,17 +280,17 @@ namespace kvt {
                 marketSpread_[0] = 0;
                 for(int asset = Asset::Type::IDXPHX + 1; asset < Asset::Type::Size; ++asset) {
                     //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.01, 10, Spread::Width::Tight);
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.02, 10, Spread::Width::Tight);
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.03, 10, Spread::Width::Tight);
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.04, 10, Spread::Width::Tight);
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.05, 10, Spread::Width::Tight);
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.06, 10, Spread::Width::Tight);
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.07, 10, Spread::Width::Tight);
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.08, 10, Spread::Width::Normal);
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.09, 10, Spread::Width::Normal);
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.10, 10, Spread::Width::Normal);
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.11, 10, Spread::Width::Normal);
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.12, 10, Spread::Width::Normal);
+                    //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.02, 10, Spread::Width::Tight);
+                    //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.03, 10, Spread::Width::Tight);
+                    //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.04, 10, Spread::Width::Tight);
+                    //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.05, 10, Spread::Width::Tight);
+                    //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.06, 10, Spread::Width::Tight);
+                    //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.07, 5, Spread::Width::Tight);
+                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.08, 5, Spread::Width::Normal);
+                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.09, 5, Spread::Width::Normal);
+                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.10, 5, Spread::Width::Normal);
+                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.11, 5, Spread::Width::Normal);
+                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.12, 5, Spread::Width::Normal);
                     //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.13, 10, Spread::Width::Normal);
                     //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.14, 10, Spread::Width::Normal);
                     //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.15, 10, Spread::Width::Wide);
@@ -590,55 +592,50 @@ namespace kvt {
                     // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lr(portfolioMut_);
                     for(int i = 0; i < Asset::Size; ++i) {
                         //std::cout << i << " " << port_[i] << std::endl;
+                        //std::cout << port_.get_pending(i) << std::endl;
                     }
                     //std::cout << "vega: " << port_.get_vega() << std::endl;
                     //std::cout << "delta: " << port_.get_delta() << std::endl;
 
+                    int vega_hedge_delta = 0;
                     if(port_.get_vega() > 0.5 || port_.get_vega() < -0.5) {
-                    int total_exposure = 0;
-                    for(int i = 1; i < Asset::Size; ++i) {
-                        if((port_.get_vega() > 0 && port_[i] > 0)
-                            || (port_.get_vega() < 0 && port_[i] < 0)) {
-                            total_exposure += port_[i];
+                        double total_exposure = 0.0;
+                        for(int i = 1; i < Asset::Size; ++i) {
+                            if((port_.get_vega() > 0 && port_[i] > 0)
+                                || (port_.get_vega() < 0 && port_[i] < 0)) {
+                                total_exposure += port_[i];
+                            }
+                        }
+                        for(int i = 1; i < Asset::Size; ++i) {
+                            if((port_.get_vega() > 0 && port_[i] < 0)
+                                || (port_.get_vega() < 0 && port_[i] > 0)) {
+                                continue;
+                            }
+                            auto vega_hedge_order = std::make_unique<Order>();
+                            vega_hedge_order->asset = static_cast<Asset::Type>(i);
+                            vega_hedge_order->strategy = Order::Strategy::Hedge;
+                            vega_hedge_order->bid = port_.get_vega() < 0;
+                            double rat = static_cast<double>(port_[i]) / total_exposure;
+                            vega_hedge_order->size = std::min(abs(rat * (port_.get_vega() / port_.get_asset_vega(i))), 500.0);
+                            if(vega_hedge_order->size < 1.0) {
+                                continue;
+                            }
+                            vega_hedge_order->type = Order::OrderType::Market;
+                            vega_hedge_order->loc.hedgeId = ++lastHedgeId;
+                            // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lk(pendingOrdersMut_);
+                            pendingOrders_.push_back(*vega_hedge_order);
+                            port_.add_pending(i, (vega_hedge_order->size * (vega_hedge_order->bid ? 1 : -1)));
+                            vega_hedge_delta += vega_hedge_order->size * port_.get_asset_delta(i) * (vega_hedge_order->bid ? 1 : -1);
+                            // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> ll(hedgeOrdersMut_);
+                            hedgeOrders_[vega_hedge_order->loc.hedgeId] = std::move(vega_hedge_order);
                         }
                     }
-                    for(int i = 1; i < Asset::Size; ++i) {
-                        if((port_.get_vega() > 0 && port_[i] < 0)
-                            || (port_.get_vega() < 0 && port_[i] > 0)) {
-                            continue;
-                        }
-                        auto vega_hedge_order = std::make_unique<Order>();
-                        vega_hedge_order->asset = static_cast<Asset::Type>(i);
-                        vega_hedge_order->strategy = Order::Strategy::Hedge;
-                        vega_hedge_order->bid = port_.get_vega() < 0;
-                        double rat = static_cast<double>(port_[i]) / total_exposure;
-                        vega_hedge_order->size = abs(round(rat * (port_.get_vega() / port_.get_asset_vega(i))));
-                        /*
-                        std::cout << "vega hedge: " << vega_hedge_order->size
-                            << " | exposure: " << port_[i]
-                            << " | total exposure: " << total_exposure
-                            << " | instrument vega: " << port_.get_asset_vega(i)
-                            << " | ratio: " << rat
-                            << " | ration2: " << (port_.get_vega() / port_.get_asset_vega(i))
-                            << std::endl;
-                            */
-                        if(vega_hedge_order->size <= 1 || vega_hedge_order->size > 100000) {
-                            continue;
-                        }
-                        vega_hedge_order->type = Order::OrderType::Market;
-                        vega_hedge_order->loc.hedgeId = ++lastHedgeId;
-                        // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> lk(pendingOrdersMut_);
-                        pendingOrders_.push_back(*vega_hedge_order);
-                        port_.add_pending(i, vega_hedge_order->size * (vega_hedge_order->bid ? 1 : -1));
-                        // std::lock_guardstd::lock_guard std::lock_guard<std::mutex> ll(hedgeOrdersMut_);
-                        hedgeOrders_[vega_hedge_order->loc.hedgeId] = std::move(vega_hedge_order);
-                    }
-                    }
-                    if(port_.get_delta() > delta_limit_ || port_.get_delta() < (-1 * delta_limit_)) {
+                    if(port_.get_delta() + vega_hedge_delta > delta_limit_
+                            || port_.get_delta() + vega_hedge_delta < (-1 * delta_limit_)) {
                         auto hedge    = std::make_unique<Order>();
                         hedge->asset    = Asset::IDXPHX;
                         hedge->strategy = Order::Strategy::Hedge;
-                        hedge->size     = abs(static_cast<int>(port_.get_delta()));
+                        hedge->size     = abs(static_cast<int>(port_.get_delta()) + vega_hedge_delta);
                         hedge->type     = Order::OrderType::Market;
                         hedge->bid      = port_.get_delta() < 0;
                         hedge->loc.hedgeId = ++lastHedgeId;
@@ -655,6 +652,17 @@ namespace kvt {
                     std::cout << "vega: " << vega() << std::endl;
                     std::cout << "delta: " << delta() << std::endl;
 
+                    int last_last_time = last_time;
+                    if(time - last_last_time > 1.0 && abs(delta()) >= 25.0) {
+                        last_time = time;
+                        penalty += 0.01 * std::pow(abs(delta()) - 25.0, 2);
+                    }
+                    if(time - last_last_time > 1.0 && abs(vega()) >= 25.0) {
+                        last_time = time;
+                        penalty += 0.01 * std::pow(abs(vega()) - 25.0, 2);
+                    }
+                    std::cout << "penalty: " << penalty << std::endl;
+
                     newMarket_.store(false);
                 //}
             }
@@ -667,6 +675,8 @@ namespace kvt {
             double delta_limit_;
 
             int greeks;
+            int last_time;
+            double penalty;
 
             std::chrono::system_clock::time_point start;
 

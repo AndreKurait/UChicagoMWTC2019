@@ -122,7 +122,7 @@ class ExampleMarketMaker(BaseExchangeServerClient):
             if type(order_id) != PlaceOrderResponse:
                 print(order_id)
                 print(order_obj)
-                quit()
+                #quit()
                 self.kernel.order_failed(order)
             else:
                 self.kernel.place_order(order, order_id.order_id)

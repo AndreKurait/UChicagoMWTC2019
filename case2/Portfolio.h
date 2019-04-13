@@ -19,6 +19,7 @@ namespace kvt {
             , market_{}
             , strike_{}
             , call_{}
+            , best_vega{0}
             , time_{0}
             , implied_vol{0.25}
             , asset_delta_{}
@@ -29,7 +30,7 @@ namespace kvt {
             asset_delta_[0] = 1;
             asset_vega_[0]  = 0;
             for(int i = 0; i < Size; ++i) {
-                e_avg_[i] = 0.25;
+                e_vol_[i] = 0.25;
             }
         }
 
@@ -55,8 +56,8 @@ namespace kvt {
             assert(0 <= asset);
             assert(asset < Size);
             pending_[asset] += amt;
-            delta_ += amt * asset_delta_[asset];
-            vega_ += amt * asset_vega_[asset];
+            //delta_ += amt * asset_delta_[asset];
+            //vega_ += amt * asset_vega_[asset];
         }
 
         int& operator[](int asset) {
@@ -96,10 +97,10 @@ namespace kvt {
                     vol_hist_[i].pop_front();
                 }
                 */
-                double vol = 0.245;
+                //double vol = 0.2475;
                 if(loop >= 30) {
-                    double mult = 2.0/(31.0);
-                    vol = (implied_vol - vol) * mult + vol;
+                    double mult = 2.0/(61.0);
+                    //e_vol_[i] = (implied_vol - e_vol_[i]) * mult + e_vol_[i];
                     //std::cout << "vol: " << vol << std::endl;
                 }
 
@@ -114,7 +115,7 @@ namespace kvt {
                     strike_[i],
                     ((1-time_/900.0) * 0.25) + (time_/900.0)*0.16666667,
                     0,
-                    vol //0.25 // implied_vo
+                    e_vol_[i] //0.25 // implied_vo
                 );
 
                 /*
@@ -129,7 +130,7 @@ namespace kvt {
                     strike_[i],
                     ((1-time_/900.0) * 0.25) + (time_/900.0)*0.16666667,
                     0,
-                    vol
+                    e_vol_[i]
                 );
                 asset_vega_[i] = bs::vega(
                     call_[i],
@@ -137,18 +138,26 @@ namespace kvt {
                     strike_[i],
                     ((1-time_/900.0) * 0.25) + (time_/900.0)*0.16666667,
                     0,
-                    vol
+                    e_vol_[i]
                 ) / 100.0;
+
+                if(asset_vega_[i] > asset_vega_[best_vega]) {
+                    best_vega = i;
+                }
 
                 delta_ += (pending_[i] + assets_[i]) * asset_delta_[i];
                 vega_ += (pending_[i] + assets_[i]) * asset_vega_[i];
             }
         }
 
+        int get_best_vega() const { return best_vega; }
         double get_asset_vega(int asset) const { return asset_vega_[asset]; }
+        double get_asset_delta(int asset) const { return asset_delta_[asset]; }
 
         double get_vega() const { return vega_; }
         double get_delta() const { return delta_; }
+
+        int get_pending(int asset) const { return pending_[asset]; }
 
         double get_delta_exact() const {
             double exact_delta = 0;
@@ -178,7 +187,9 @@ namespace kvt {
         int strike_[Size];
         char call_[Size];
 
-        double e_avg_[Size];
+        int best_vega;
+
+        double e_vol_[Size];
 
         std::deque<double> vol_hist_[Size];
 
