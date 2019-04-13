@@ -22,7 +22,9 @@ class Case1(BaseExchangeServerClient):
         self.q_array = []
         self.u_array = []
         self.v_array = []
+        #some arbitrary price calculation. probably will do something w/ the standard deviation that makes it better
         self._wiggle = .001
+        
         #This is used to relate the symbol to the index of the arrays
         self._symbol_dict = {'K': 0,
                              'M': 1,
@@ -30,12 +32,21 @@ class Case1(BaseExchangeServerClient):
                              'Q': 3,
                              'U': 4,
                              'V': 5}
+
         
-        #This is used to keep track of open orders, what symbol they link to, and what their order id is
+        #order_id_dict holds the ids for the limit orders around the calcualted theo
+        #reversion dict holds the ids for the orders that calculate the mean reversion
+        #_price_dict is not implemented but will hold the prices if needed
         self.order_id_dict = {}
+        self.reversion_dict = {}
+        self.price_dict = {}
         for x in ['K', 'M', 'N', 'Q', 'U', 'V']:
             self.order_id_dict[x + '_short'] = 0
             self.order_id_dict[x + '_long'] = 0
+            self.price_dict[x + '_short'] = 0
+            self.price_dict[x + '_long'] = 0
+            self.reversion_dict[x + '_short'] = 0
+            self.reversion_dict[x + '_long'] = 0
 
         #This is used to calculated the exponential weights needed for the MA time series
         self._weights = []
@@ -56,6 +67,7 @@ class Case1(BaseExchangeServerClient):
                      competitor_identifier = self._comp_id)
 
     def order_update_handle(self, order):
+        #Don't want to hold failed orders
         if type(order) != PlaceOrderResponse:
             pass
         else:
@@ -87,30 +99,77 @@ class Case1(BaseExchangeServerClient):
         else:
             order = self.modify_order(self.order_id_dict[s_long], k)
             self.order_id_dict[s_long] = self.order_update_handle(order)
+    
 
 
+
+
+    def mean_reversion(self, mean_list_a, mean_list_b, symbol, price_array):
+        #the idea here is that if the mean reverts we sell what we have
+        #may want to impliment order cancelling
+        val = self._symbol_dict[symbol]
+        s_short = symbol + '_short'
+        s_long = symbol + '_long'
+        if self.owned_shares[symbol] < 0:
+            if mean_list_a[val] + self._wiggle / 4 > price_array[-1][1]:
+                k = self._make_order(symbol, self.owned_shares[symbol] * -1, price_array[-1][1])
+                if self.reversion_dict[s_short] == 0:
+                    order = self.place_order(k)
+                    self.reversion_dict[s_short] = self.order_update_handle(order)
+                else:
+                    order = self.modify_order(self.reversion_dict[s_short], k)
+                    self.reversion_dict[s_short] = self.order_update_handle(order)
+
+        if self.owned_shares[symbol] > 0:
+            if mean_list_b[val] - self._wiggle / 4 < price_array[-1][0]:
+                k = self._make_order(symbol, self.owned_shares[symbol] * -1, price_array[-1][0])
+                if self.reversion_dict[s_long] == 0:
+                    order = self.place_order(k)
+                    self.reversion_dict[s_long] = self.order_update_handle(order)
+                else:
+                    order = self.modify_order(self.reversion_dict[s_long], k)
+                    self.reversion_dict[s_long] = self.order_update_handle(order)
+
+
+    def risk_limits():
+        #unimplimented. Will dump orders when near risk limits. may not be needed because of the mean_reversion
+
+        return ''
+    
+    
     def handle_exchange_update(self, exchange_update_response):
         #Data Handle
-        #print(exchange_update_response.competitor_metadata)
+        print(exchange_update_response.competitor_metadata)
         market = []
         print(self._count)
         #Iterate over the fills that we've recieved to store them and our position size
         print(self.owned_shares)
         for q in exchange_update_response.fills:
             try:
+                #need to fix that fills may come from the mean reversion and to fix that
                 order_key = q.order.asset_code
+                old_id = ''
                 if q.order.quantity > 0:
                     order_string = order_key + '_long'
                 elif q.order.quantity < 0:
                     order_string = order_key + '_short'
-                old_id = self.order_id_dict[order_string]    
-                self.order_id_dict[order_string] = 0
+                for values, ids in self.order_id_dict.items():
+                    if ids == q.order.order_id:
+                        old_id = self.order_id_dict[order_string]
+                        self.order_id_dict[order_string] = 0
+                for values, ids in self.reversion_dict.items():
+                    if ids == q.order.order_id:
+                        old_id = self.reversion_dict[order_string]
+                        self.reversion_dict[order_string] = 0    
                 self.owned_shares[order_key] += q.order.quantity 
+                #just in case
                 self.cancel_order(old_id)
             except KeyboardInterrupt:
                 break
             #except:
-                 #print('Failure')   
+                 #print('Failure')
+                 #probably want this in order to recover from ids not in the list somehow.   
+                 #can add into an arbitrary quantity and symbol dict to figure out what to do
 
         for z in exchange_update_response.market_updates:
             code = z.asset.asset_code
@@ -171,7 +230,14 @@ class Case1(BaseExchangeServerClient):
             self.order_creation(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'Q', price_array = self.q_array )
             self.order_creation(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'U', price_array = self.u_array )
             self.order_creation(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'V', price_array = self.v_array )
-        
+
+            self.mean_reversion(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'K', price_array = self.k_array )
+            self.mean_reversion(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'M', price_array = self.m_array )
+            self.mean_reversion(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'N', price_array = self.n_array )
+            self.mean_reversion(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'Q', price_array = self.q_array )
+            self.mean_reversion(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'U', price_array = self.u_array )
+            self.mean_reversion(mean_list_a = mean_k_a, mean_list_b = mean_k_b, symbol = 'V', price_array = self.v_array )
+
         self._count+=1
     
         
@@ -206,9 +272,6 @@ class Case1(BaseExchangeServerClient):
         #     self.cancel_order(self._orderids.pop())
         #     self.cancel_order(self._orderids.pop())
 
-        # only trade 5% of the time
-        # if random.random() > 0.05:
-        #     return
 
         # # place a bid and an ask for each asset
         # for i, asset_code in enumerate(["K", "M", "N"]):
