@@ -321,7 +321,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run the exchange client')
     parser.add_argument("--server_host", type=str, default="localhost")
     parser.add_argument("--server_port", type=str, default="50052")
-    parser.add_argument("--client_id", type=str, default="kansas1")
+    parser.add_argument("--client_id", type=str, default="kansas")
     parser.add_argument("--client_private_key", type=str)
     parser.add_argument("--websocket_port", type=int, default=5678)
 
