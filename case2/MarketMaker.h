@@ -270,6 +270,7 @@ namespace kvt {
                 , reprice_thresh_{reprice_thresh}
                 , delta_limit_{delta_limit}
                 , greeks{0}
+                , tightening{}
                 , last_time{0}
                 , penalty{0}
                 , lastHedgeId{0}
@@ -284,16 +285,16 @@ namespace kvt {
                     //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.03, 10, Spread::Width::Tight);
                     //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.04, 10, Spread::Width::Tight);
                     //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.05, 10, Spread::Width::Tight);
-                    //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.06, 10, Spread::Width::Tight);
+                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.06, 5, Spread::Width::Tight);
                     //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.07, 5, Spread::Width::Tight);
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.08, 5, Spread::Width::Normal);
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.09, 5, Spread::Width::Normal);
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.10, 5, Spread::Width::Normal);
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.11, 5, Spread::Width::Normal);
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.12, 5, Spread::Width::Normal);
+                    //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.08, 10, Spread::Width::Normal);
+                    //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.09, 10, Spread::Width::Normal);
+                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.09, 10, Spread::Width::Tight);
+                    //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.11, 10, Spread::Width::Normal);
+                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.12, 15, Spread::Width::Normal);
                     //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.13, 10, Spread::Width::Normal);
                     //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.14, 10, Spread::Width::Normal);
-                    //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.15, 10, Spread::Width::Wide);
+                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.15, 15, Spread::Width::Wide);
                     portfolio_[asset] = 0;
                     lastMidPrice_[asset] = 0;
                     marketSpread_[asset] = 0;
@@ -467,11 +468,6 @@ namespace kvt {
                         modify = true;
                         existing_order->price = port_.option_price(spread.asset);
                     }
-                    if(spread.width == Spread::Width::Tight && abs(spread.spread - marketSpread_[spread.asset]) > 0.06) {
-                        spread.spread = marketSpread_[spread.asset];
-                        modify = true;
-                        existing_order->spread = marketSpread_[spread.asset];
-                    }
                     if(spread.width == Spread::Width::Tight &&
                             marketSpread_[spread.asset] < spread.spread && abs(spread.spread - marketSpread_[spread.asset]) > 0.03) {
                         modify = true;
@@ -484,6 +480,16 @@ namespace kvt {
                         spread.spread = marketSpread_[spread.asset];
                         existing_order->spread = spread.spread;
                         //std::cout << "modify 1" << std::endl;
+                    }
+                    if(spread.width == Spread::Width::Tight && abs(spread.spread - marketSpread_[spread.asset]) > 0.02) {
+                        if(tightening[spread.asset]++ > 3) {
+                            spread.spread = marketSpread_[spread.asset];
+                            modify = true;
+                            existing_order->spread = marketSpread_[spread.asset];
+                            std::cout << "modify 2!!!!!\n\n\n\n\n\n\n\n" << std::endl;
+                        } else {
+                            tightening[spread.asset] = 0;
+                        }
                     }
 */
                     if(abs(port_.option_price(spread.asset) - existing_order->price) > 0.05) {
@@ -674,6 +680,7 @@ namespace kvt {
             double reprice_thresh_;
             double delta_limit_;
 
+            int tightening[Asset::Size];
             int greeks;
             int last_time;
             double penalty;
