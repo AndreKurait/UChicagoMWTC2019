@@ -13,6 +13,7 @@ find_package(pybind11 REQUIRED)
 pybind11_add_module(
     kvt
     kvt.cpp
+    black_scholes.cpp
     lets-be-rational/LetsBeRational.cpp
     lets-be-rational/rationalcubic.cpp
     lets-be-rational/normaldistribution.cpp

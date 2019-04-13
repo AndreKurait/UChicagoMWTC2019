@@ -117,7 +117,7 @@ class BaseExchangeServerClient(threading.Thread):
     def modify_order(self, order_id: str, new_order: Order):
         try:
             r = self._stub.ModifyOrder(ModifyOrderRequest(competitor_identifier=self._comp_id,
-                order_id=order_id, order=order))
+                order_id=order_id, new_order=new_order))
             return r
         except Exception as e:
             return e
