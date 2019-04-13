@@ -138,9 +138,9 @@ class Case1(BaseExchangeServerClient):
         if abs(exposure - mid_exposure) >= 4:
             quant =  math.trunc((exposure - mid_exposure) / -2)
             # print('HEDGING: ', quant)
-            k = self._make_order(asset_code = 'K', quantity = quant , base_price=mean_list[self._symbol_dict['K']]-.03*(exposure - mid_exposure)/abs((exposure - mid_exposure)), order_type = Order.ORDER_LMT)
+            k = self._make_order(asset_code = 'K', quantity = quant , base_price=mean_list[self._symbol_dict['K']]-.01*(exposure - mid_exposure)/abs((exposure - mid_exposure)), order_type = Order.ORDER_LMT)
             self.place_order(k)
-            v = self._make_order(asset_code = 'V', quantity = quant, base_price=mean_list[self._symbol_dict['V']]-.03*(exposure - mid_exposure)/abs((exposure - mid_exposure)), order_type = Order.ORDER_LMT)
+            v = self._make_order(asset_code = 'V', quantity = quant, base_price=mean_list[self._symbol_dict['V']]-.01*(exposure - mid_exposure)/abs((exposure - mid_exposure)), order_type = Order.ORDER_LMT)
             self.place_order(v)
             # k = self._make_order(asset_code = 'M', quantity = quant , base_price=mean_list[self._symbol_dict['M']], order_type = Order.ORDER_LMT)
             # self.place_order(k)
@@ -151,7 +151,6 @@ class Case1(BaseExchangeServerClient):
             # v = self._make_order(asset_code = 'U', quantity = quant, base_price=mean_list[self._symbol_dict['U']], order_type = Order.ORDER_LMT)
             # self.place_order(v)
     def dump(self):
-        tempDict = self.owned_shares
         # while sum(values for key, values in tempDict.items()) > 1:
         for key, values in self.owned_shares.items():
                     # print('HEDGING: ', quant)
@@ -160,6 +159,9 @@ class Case1(BaseExchangeServerClient):
                         k = self._make_order(asset_code = key, quantity = quant , order_type = Order.ORDER_MKT)
                         self.place_order(k)
                         # tempDict[key] -= quant
+        for key, _ in self._symbol_dict.items():
+            self.order_id_dict[key + '_short'] = [(0, 0),(0, 0),(0, 0),(0, 0),(0, 0),(0, 0)]
+            self.order_id_dict[key + '_long'] = [(0, 0),(0, 0),(0, 0),(0, 0),(0, 0),(0, 0)]
 
     def handle_exchange_update(self, exchange_update_response):
         #Data Handle
@@ -220,8 +222,7 @@ class Case1(BaseExchangeServerClient):
                     code = z.asset.asset_code
                     #bids = z.bids
                     #asks = z.asks
-                    mid_market = z.mid_market_price 
-                    curMarket.append(mid_market)           
+                    mid_market = z.mid_market_price         
                     self.market_data[code].append(mid_market)
         backLook = self._count
         if self._count > 30:
