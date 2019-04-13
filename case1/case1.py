@@ -135,8 +135,8 @@ class Case1(BaseExchangeServerClient):
                 mid_exposure += values
         # print("exposure: ", exposure)
         # print("midexposure: ", mid_exposure)
-        if abs(exposure - mid_exposure) >= 4:
-            quant =  math.trunc((exposure - mid_exposure) / -2)
+        if abs(exposure) >= 4:
+            quant =  math.trunc((exposure) / -2)
             # print('HEDGING: ', quant)
             k = self._make_order(asset_code = 'K', quantity = quant, order_type = Order.ORDER_MKT)
             self.place_order(k)

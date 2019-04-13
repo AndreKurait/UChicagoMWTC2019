@@ -98,8 +98,8 @@ namespace kvt {
                 }
                 */
                 //double vol = 0.2475;
-                if(loop >= 30) {
-                    double mult = 2.0/(61.0);
+                if(loop >= 40) {
+                    double mult = 2.0/(41.0);
                     e_vol_[i] = (implied_vol - e_vol_[i]) * mult + e_vol_[i];
                     //std::cout << "vol: " << vol << std::endl;
                 }

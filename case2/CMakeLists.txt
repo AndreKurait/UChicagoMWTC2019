@@ -19,4 +19,4 @@ pybind11_add_module(
     lets-be-rational/normaldistribution.cpp
     lets-be-rational/erf_cody.cpp
 )
-target_link_libraries(kvt PRIVATE -L/usr/local/lib -lprotobuf)
+target_link_libraries(kvt PRIVATE -L/usr/local/lib)

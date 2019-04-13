@@ -281,20 +281,20 @@ namespace kvt {
                 marketSpread_[0] = 0;
                 for(int asset = Asset::Type::IDXPHX + 1; asset < Asset::Type::Size; ++asset) {
                     //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.01, 10, Spread::Width::Tight);
-                    //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.02, 10, Spread::Width::Tight);
+                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.02, 3, Spread::Width::Tight);
                     //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.03, 10, Spread::Width::Tight);
-                    //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.04, 10, Spread::Width::Tight);
+                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.04, 5, Spread::Width::Tight);
                     //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.05, 10, Spread::Width::Tight);
                     spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.06, 5, Spread::Width::Tight);
-                    //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.07, 5, Spread::Width::Tight);
+                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.08, 10, Spread::Width::Tight);
                     //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.08, 10, Spread::Width::Normal);
                     //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.09, 10, Spread::Width::Normal);
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.09, 10, Spread::Width::Tight);
+                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.10, 10, Spread::Width::Tight);
                     //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.11, 10, Spread::Width::Normal);
                     spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.12, 15, Spread::Width::Normal);
                     //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.13, 10, Spread::Width::Normal);
                     //spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.14, 10, Spread::Width::Normal);
-                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.15, 15, Spread::Width::Wide);
+                    spreads_.emplace_back(static_cast<Asset::Type>(asset), 0.14, 15, Spread::Width::Wide);
                     portfolio_[asset] = 0;
                     lastMidPrice_[asset] = 0;
                     marketSpread_[asset] = 0;
