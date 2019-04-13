@@ -28,6 +28,9 @@ namespace kvt {
         {
             asset_delta_[0] = 1;
             asset_vega_[0]  = 0;
+            for(int i = 0; i < Size; ++i) {
+                e_avg_[i] = 0.25;
+            }
         }
 
         void set_strike(int asset, int strike) {
@@ -74,6 +77,9 @@ namespace kvt {
             vega_ = 0;
             delta_ = assets_[0] + pending_[0];
 
+            static int loop = 0;
+            loop++;
+
             for(int i = 1; i < Size; ++i) {
                 implied_vol = bs::implied_volatility(
                     market_[i],
@@ -83,27 +89,39 @@ namespace kvt {
                     0,
                     call_[i]
                 );
+
                 /*
                 vol_hist_[i].push_back(implied_vol);
-                if(vol_hist_[i].size() >= 40) {
+                if(vol_hist_[i].size() >= ) {
                     vol_hist_[i].pop_front();
                 }
+                */
+                double vol = 0.245;
+                if(loop >= 30) {
+                    double mult = 2.0/(31.0);
+                    vol = (implied_vol - vol) * mult + vol;
+                    //std::cout << "vol: " << vol << std::endl;
+                }
 
+                /*
                 double vol = vol_hist_[i].empty() ? 0.245 :
                     std::accumulate(std::begin(vol_hist_[i]), std::end(vol_hist_[i]), 0.0, std::plus<double>()) / vol_hist_[i].size();
-*/
+
+                */
                 bs_price_[i] = bs::black_scholes(
                     call_[i],
                     market_[0],
                     strike_[i],
                     ((1-time_/900.0) * 0.25) + (time_/900.0)*0.16666667,
                     0,
-                    0.25 // implied_vo
+                    vol //0.25 // implied_vo
                 );
 
+                /*
                 if(abs(0.25 - implied_vol) > 0.005) {
                     std::cout << "vol dif!!!!!!" << std::endl << std::endl;
                 }
+                */
 
                 asset_delta_[i] = bs::delta(
                     call_[i],
@@ -111,7 +129,7 @@ namespace kvt {
                     strike_[i],
                     ((1-time_/900.0) * 0.25) + (time_/900.0)*0.16666667,
                     0,
-                    implied_vol
+                    vol
                 );
                 asset_vega_[i] = bs::vega(
                     call_[i],
@@ -119,7 +137,7 @@ namespace kvt {
                     strike_[i],
                     ((1-time_/900.0) * 0.25) + (time_/900.0)*0.16666667,
                     0,
-                    implied_vol
+                    vol
                 ) / 100.0;
 
                 delta_ += (pending_[i] + assets_[i]) * asset_delta_[i];
@@ -159,6 +177,8 @@ namespace kvt {
         double market_[Size];
         int strike_[Size];
         char call_[Size];
+
+        double e_avg_[Size];
 
         std::deque<double> vol_hist_[Size];
 
